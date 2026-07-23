@@ -28,7 +28,7 @@ Simply run the **`start_gui.command`** script to automatically build the engine 
 
 ## 👤 Project Leadership & Author
 
-ChipsFish was created, designed, and is maintained by **[@suffixdot](https://github.com/suffixdot)** (Project Lead & Original Author).
+ChipsFish was created, designed, and is maintained by **[@suffixdot](https://github.com/suffixdot)** (Project Lead & Original Author) with generative AI for assistance on the code.
 
 ---
 
