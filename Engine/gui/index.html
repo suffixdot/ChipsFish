@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChipsFish</title>
+    <link rel="icon" type="image/png" href="logo.png">
+    <link rel="apple-touch-icon" href="logo.png">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar / Control Panel -->
+        <aside class="sidebar glass">
+            <header class="logo-area">
+                <div class="logo-title-row">
+                    <div class="brand-title-group">
+                        <img src="logo.png" alt="ChipsFish Logo" class="brand-logo-img">
+                        <h1>CHIPSFISH</h1>
+                    </div>
+                    <button id="btn-settings" class="btn-icon-settings" title="Game Settings">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
+                    </button>
+                </div>
+                <span class="subtitle">THE #1 DAMATHS ENGINE</span>
+            </header>
+
+            <!-- Game Status Quick Card -->
+            <div class="sidebar-card status-card">
+                <div class="card-header">
+                    <span class="card-title">Match Status</span>
+                    <span id="badge-game-mode" class="mode-tag">PVE</span>
+                </div>
+                <div class="status-indicator-row">
+                    <div id="status-turn-pill" class="turn-pill red">
+                        <span class="dot"></span>
+                        <span id="status-turn-text">RED Turn</span>
+                    </div>
+                    <span id="engine-status-text" class="status-subtext">Ready</span>
+                </div>
+            </div>
+
+            <!-- Move History Notation Card -->
+            <div class="sidebar-card history-card">
+                <div class="card-header">
+                    <span class="card-title">Move History</span>
+                    <span id="move-count-badge" class="count-badge">0 moves</span>
+                </div>
+                <div class="history-list" id="history-list">
+                    <div class="history-empty">No moves played yet</div>
+                </div>
+            </div>
+
+            <!-- Action Buttons Section -->
+            <section class="actions-section">
+                <button id="btn-start" class="btn primary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                    New Game
+                </button>
+                <button id="btn-undo" class="btn secondary" disabled>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+                    Undo
+                </button>
+                <button id="btn-reset" class="btn danger">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    Reset
+                </button>
+            </section>
+
+            <footer class="credits">
+                Powered by Damath Engine C++
+            </footer>
+        </aside>
+
+        <!-- Main Play Area -->
+        <main class="main-content">
+            <!-- Scoreboard -->
+            <section class="scoreboard glass">
+                <div class="player-panel red-player active" id="panel-red">
+                    <div class="player-avatar">R</div>
+                    <div class="player-info">
+                        <span class="player-name">RED PLAYER</span>
+                        <div class="score-display">
+                            <span class="fraction" id="score-red">0</span>
+                        </div>
+                    </div>
+                    <div class="turn-dot"></div>
+                </div>
+
+                <div class="vs-divider">
+                    <span>VS</span>
+                    <button id="btn-flip-board" class="btn-icon-flip" title="Flip Board (Hotkey: F)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4M7 4L3 8M7 4L11 8M17 8V20M17 20L21 16M17 20L13 16"/></svg>
+                    </button>
+                </div>
+
+                <div class="player-panel blue-player" id="panel-blue">
+                    <div class="turn-dot"></div>
+                    <div class="player-info">
+                        <span class="player-name">BLUE PLAYER</span>
+                        <div class="score-display">
+                            <span class="fraction" id="score-blue">0</span>
+                        </div>
+                    </div>
+                    <div class="player-avatar">B</div>
+                </div>
+            </section>
+
+            <!-- Board Area -->
+            <div class="game-board-container">
+                <!-- 8x8 Board -->
+                <div class="board-wrapper">
+                    <div class="board" id="board">
+                        <!-- Grid squares will be generated dynamically -->
+                    </div>
+                    <!-- Best Move Arrow Overlay -->
+                    <svg id="best-move-overlay" class="board-arrow-overlay" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <marker id="best-move-arrowhead" markerWidth="4" markerHeight="4" refX="2" refY="2" orient="auto">
+                                <path d="M0,0 L4,2 L0,4 Z" fill="rgba(88, 245, 78, 0.92)" />
+                            </marker>
+                        </defs>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Console Area -->
+            <section class="console-panel glass">
+                <div class="console-header">
+                    <h3>Engine Output Console</h3>
+                    <button id="btn-clear-console" class="btn-text">Clear</button>
+                </div>
+                <div class="console-log" id="console-log">
+                    <div class="log-entry system">Engine ready. Press "Start Game" to begin.</div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settings-modal">
+        <div class="modal-content glass settings-modal-content">
+            <div class="settings-modal-header">
+                <h2>Game Settings</h2>
+                <button id="btn-close-settings" class="btn-icon-close" title="Close">&#10005;</button>
+            </div>
+
+            <div class="settings-modal-body">
+
+                <!-- Game Mode group -->
+                <div class="settings-group-label">Game Mode</div>
+
+                <div class="control-group">
+                    <label for="game-mode">Mode</label>
+                    <select id="game-mode">
+                        <option value="pvp">Player vs Player</option>
+                        <option value="pve" selected>Player vs AI</option>
+                        <option value="eve">AI vs AI</option>
+                    </select>
+                </div>
+
+                <div class="control-group" id="player-color-group">
+                    <label for="player-color">Play As</label>
+                    <select id="player-color">
+                        <option value="red">RED (First)</option>
+                        <option value="blue">BLUE</option>
+                    </select>
+                </div>
+
+                <!-- Damath Variant group -->
+                <div class="settings-group-label">Damath Variant</div>
+
+                <div class="control-group">
+                    <label for="damath-variant">Variant</label>
+                    <select id="damath-variant">
+                        <option value="counting">Counting (Grades 1–2)</option>
+                        <option value="whole">Whole Number (Grades 3–4)</option>
+                        <option value="fraction">Fraction (Grades 5–6)</option>
+                        <option value="integer" selected>Integer (Grade 7)</option>
+                        <option value="rational">Rational (Grade 8)</option>
+                        <option value="radical">Radical (Grade 9)</option>
+                        <option value="polynomial">Polynomial (Grade 10)</option>
+                    </select>
+                </div>
+                <div class="control-group variant-hint" id="variant-hint-box">
+                    <span class="variant-hint-text" id="variant-hint-text"></span>
+                </div>
+
+                <!-- AI Config group -->
+                <div class="settings-group-label">AI Configuration</div>
+
+                <div class="control-group">
+                    <label for="ai-limit-type">AI Limits</label>
+                    <select id="ai-limit-type">
+                        <option value="depth">Search Depth</option>
+                        <option value="time" selected>Time Limit</option>
+                    </select>
+                </div>
+
+                <div class="control-group" id="ai-depth-group" style="display: none;">
+                    <label for="ai-depth">Depth (plies)</label>
+                    <input type="number" id="ai-depth" value="5" min="1" max="15">
+                </div>
+
+                <div class="control-group" id="ai-time-group">
+                    <label for="ai-time">Time Limit (ms)</label>
+                    <input type="number" id="ai-time" value="1000" min="100" max="10000" step="500">
+                </div>
+
+                <!-- Options group -->
+                <div class="settings-group-label">Options</div>
+
+                <div class="control-group check-group">
+                    <input type="checkbox" id="mid-move-promo">
+                    <label for="mid-move-promo">Mid-Move Promotion</label>
+                </div>
+
+                <div class="control-group check-group">
+                    <input type="checkbox" id="show-best-move">
+                    <label for="show-best-move">Show Best Move</label>
+                </div>
+
+                <div class="control-group" id="best-move-depth-group" style="display: none;">
+                    <label for="best-move-depth">Best Move Depth (max 15)</label>
+                    <input type="number" id="best-move-depth" value="15" min="1" max="15">
+                </div>
+
+                <div class="control-group check-group">
+                    <input type="checkbox" id="flip-board-check">
+                    <label for="flip-board-check">Flip Board (F)</label>
+                </div>
+
+            </div><!-- /.settings-modal-body -->
+
+            <div class="settings-modal-footer">
+                <button id="btn-apply-settings" class="btn primary">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Over Modal -->
+    <div class="modal-overlay" id="game-over-modal">
+        <div class="modal-content glass">
+            <h2>Game Over</h2>
+            <p id="game-over-text">Winner info will appear here.</p>
+            <div class="modal-scores">
+                <div class="modal-score-item">
+                    <span class="label">RED</span>
+                    <span class="value" id="modal-score-red">0</span>
+                </div>
+                <div class="modal-score-item">
+                    <span class="label">BLUE</span>
+                    <span class="value" id="modal-score-blue">0</span>
+                </div>
+            </div>
+            <button id="btn-close-modal" class="btn primary">Play Again</button>
+        </div>
+    </div>
+
+    <script src="index.js"></script>
+</body>
+</html>

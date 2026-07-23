@@ -1,0 +1,27 @@
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Compiled C++ binaries & object files
+Engine/damath_engine
+Engine/damath_tests
+Engine/build/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+
+# Temporary files & python caches
+*.tmp
+Engine/book/*.tmp
+__pycache__/
+*.pyc
+
+# IDE & system config
+.vscode/
+.idea/
+*.swp
