@@ -350,8 +350,14 @@ class Board {
         let red = this.redScore, blue = this.blueScore;
         for (let sq = 0; sq < 64; sq++) {
             const p = this.board[sq];
-            if (p.color === Color.RED)  red  = red.add(p.value);
-            if (p.color === Color.BLUE) blue = blue.add(p.value);
+            if (p.color === Color.RED) {
+                const val = p.isKing ? p.value.mul(new Fraction(2, 1)) : p.value;
+                red = red.add(val);
+            }
+            if (p.color === Color.BLUE) {
+                const val = p.isKing ? p.value.mul(new Fraction(2, 1)) : p.value;
+                blue = blue.add(val);
+            }
         }
         return { red, blue };
     }
@@ -623,15 +629,21 @@ function evaluateBoard(board) {
     return blueEval.sub(redEval);
 }
 
-function getTerminalScore(board) {
-    let red = board.redScore, blue = board.blueScore;
-    for (let sq = 0; sq < 64; sq++) {
-        const p = board.getPiece(sq);
-        if (p.color === Color.RED)  red  = red.add(p.value);
-        if (p.color === Color.BLUE) blue = blue.add(p.value);
+function getTerminalScore(board, depthFromRoot = 0) {
+    if (board.isDrawByRepetition() || board.isDrawByOnePieceRepetition() || board.isDrawByNoCaptureLimit()) {
+        return Fraction.ZERO;
     }
-    if (board.sideToMove === Color.RED) return red.sub(blue);
-    return blue.sub(red);
+    const { red, blue } = board.getFinalScores();
+    const myScore = board.sideToMove === Color.RED ? red : blue;
+    const oppScore = board.sideToMove === Color.RED ? blue : red;
+
+    if (myScore.gt(oppScore)) {
+        return new Fraction(1000000 - depthFromRoot, 1);
+    } else if (myScore.lt(oppScore)) {
+        return new Fraction(-1000000 + depthFromRoot, 1);
+    } else {
+        return Fraction.ZERO;
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -685,7 +697,7 @@ function scoreMoveForSort(m, board, ttFromSq, ttToSq, depthFromRoot) {
     return score;
 }
 
-function quiescence(board, alpha, beta, midMoveProm) {
+function quiescence(board, alpha, beta, midMoveProm, depthFromRoot = 0) {
     if (searchTimeout) return Fraction.ZERO;
     searchNodes++;
     if (searchTimeLimit > 0 && searchNodes % 512 === 0) {
@@ -696,7 +708,7 @@ function quiescence(board, alpha, beta, midMoveProm) {
     }
 
     const moves = generateLegalMoves(board, midMoveProm);
-    if (moves.length === 0) return getTerminalScore(board);
+    if (moves.length === 0) return getTerminalScore(board, depthFromRoot);
     if (!moves[0].isCapture) return evaluateBoard(board);
 
     moves.sort((a, b) => b.scoreChange.toFloat() - a.scoreChange.toFloat());
@@ -704,7 +716,7 @@ function quiescence(board, alpha, beta, midMoveProm) {
     let best = Fraction.NEG_INF;
     for (const m of moves) {
         board.makeMove(m);
-        const score = quiescence(board, beta.neg(), alpha.neg(), midMoveProm).neg();
+        const score = quiescence(board, beta.neg(), alpha.neg(), midMoveProm, depthFromRoot + 1).neg();
         board.undoMove();
         if (searchTimeout) return Fraction.ZERO;
         if (score.gt(best)) best = score;
@@ -725,7 +737,7 @@ function negamax(board, depth, alpha, beta, tt, depthFromRoot, midMoveProm) {
     }
 
     const moves = generateLegalMoves(board, midMoveProm);
-    if (moves.length === 0) return getTerminalScore(board);
+    if (moves.length === 0) return getTerminalScore(board, depthFromRoot);
 
     const key = boardKey(board);
     let ttFromSq = -1, ttToSq = -1;
@@ -738,7 +750,7 @@ function negamax(board, depth, alpha, beta, tt, depthFromRoot, midMoveProm) {
     }
     if (ttEntry) { ttFromSq = ttEntry.fromSq; ttToSq = ttEntry.toSq; }
 
-    if (depth <= 0) return quiescence(board, alpha, beta, midMoveProm);
+    if (depth <= 0) return quiescence(board, alpha, beta, midMoveProm, depthFromRoot);
 
     const scored = moves.map(m => [scoreMoveForSort(m, board, ttFromSq, ttToSq, depthFromRoot), m]);
     scored.sort((a, b) => b[0] - a[0]);

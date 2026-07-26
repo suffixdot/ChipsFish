@@ -415,9 +415,11 @@ void Board::GetFinalScores(Fraction& red_final, Fraction& blue_final) const {
     blue_final = blue_score;
     for (int sq = 0; sq < 64; ++sq) {
         if (board[sq].color == Color::RED) {
-            red_final = red_final + board[sq].value;
+            Fraction p_val = board[sq].is_king ? (board[sq].value * Fraction(2, 1)) : board[sq].value;
+            red_final = red_final + p_val;
         } else if (board[sq].color == Color::BLUE) {
-            blue_final = blue_final + board[sq].value;
+            Fraction p_val = board[sq].is_king ? (board[sq].value * Fraction(2, 1)) : board[sq].value;
+            blue_final = blue_final + p_val;
         }
     }
 }

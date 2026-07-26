@@ -50,7 +50,7 @@ namespace {
         return score;
     }
 
-    Fraction Quiescence(Board& board, Fraction alpha, Fraction beta) {
+    Fraction Quiescence(Board& board, Fraction alpha, Fraction beta, int depth_from_root) {
         if (timeout_flag) return Fraction(0);
 
         nodes_visited++;
@@ -65,7 +65,7 @@ namespace {
 
         auto moves = MoveGen::GenerateLegalMoves(board);
         if (moves.empty()) {
-            return GetTerminalScore(board);
+            return GetTerminalScore(board, depth_from_root);
         }
 
         // If no captures are available, this is a quiet position and we can stand pat
@@ -85,7 +85,7 @@ namespace {
 
         for (const auto& m : moves) {
             board.MakeMove(m);
-            Fraction score = -Quiescence(board, -beta, -alpha);
+            Fraction score = -Quiescence(board, -beta, -alpha, depth_from_root + 1);
             board.UndoMove();
 
             if (timeout_flag) return Fraction(0);
@@ -117,7 +117,7 @@ namespace {
 
         auto moves = MoveGen::GenerateLegalMoves(board);
         if (moves.empty()) {
-            return GetTerminalScore(board);
+            return GetTerminalScore(board, depth_from_root);
         }
 
         // TT Probe
@@ -134,7 +134,7 @@ namespace {
         }
 
         if (depth <= 0) {
-            return Quiescence(board, alpha, beta);
+            return Quiescence(board, alpha, beta, depth_from_root);
         }
 
         // Sort moves
@@ -189,22 +189,23 @@ namespace {
     }
 } // namespace
 
-Fraction GetTerminalScore(const Board& board) {
-    Fraction red_final = board.GetRedScore();
-    Fraction blue_final = board.GetBlueScore();
-    for (int sq = 0; sq < 64; ++sq) {
-        const Piece& p = board.GetPiece(sq);
-        if (p.color == Color::RED) {
-            red_final = red_final + p.value;
-        } else if (p.color == Color::BLUE) {
-            blue_final = blue_final + p.value;
-        }
+Fraction GetTerminalScore(const Board& board, int depth_from_root) {
+    if (board.IsDrawByRepetition() || board.IsDrawByOnePieceRepetition() || board.IsDrawByNoCaptureLimit()) {
+        return Fraction(0);
     }
-    
-    if (board.GetSideToMove() == Color::RED) {
-        return red_final - blue_final;
+
+    Fraction red_final, blue_final;
+    board.GetFinalScores(red_final, blue_final);
+
+    Fraction my_final = (board.GetSideToMove() == Color::RED) ? red_final : blue_final;
+    Fraction opp_final = (board.GetSideToMove() == Color::RED) ? blue_final : red_final;
+
+    if (my_final > opp_final) {
+        return Fraction(1000000LL - static_cast<long long>(depth_from_root), 1LL);
+    } else if (my_final < opp_final) {
+        return Fraction(-1000000LL + static_cast<long long>(depth_from_root), 1LL);
     } else {
-        return blue_final - red_final;
+        return Fraction(0);
     }
 }
 

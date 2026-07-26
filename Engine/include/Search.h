@@ -11,7 +11,7 @@ namespace Search {
     Move SearchBestMove(Board& board, int depth_limit, int time_limit_ms, TranspositionTable& tt);
 
     // Helper to get the terminal score if the game is over in the current board state.
-    Fraction GetTerminalScore(const Board& board);
+    Fraction GetTerminalScore(const Board& board, int depth_from_root = 0);
 
     int ScoreMoveForTest(const Move& m, Square tt_from, Square tt_to, int depth_from_root);
     void SetKillerMoveForTest(int depth, const Move& m, int slot);

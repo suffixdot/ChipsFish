@@ -204,17 +204,19 @@ void test_game_over_and_final() {
     ASSERT_TRUE(board.IsGameOver());
     
     board.SetPiece(make_square(0, 7), Piece{Color::BLUE, Fraction(1), false});
-    board.SetPiece(make_square(2, 7), Piece{Color::RED, Fraction(1), false});
+    board.SetPiece(make_square(2, 7), Piece{Color::RED, Fraction(1), true}); // Promoted King value 1 -> 2
     board.SetSideToMove(Color::BLUE);
-    board.SetPiece(make_square(1, 6), Piece{Color::RED, Fraction(1), false});
-    board.SetPiece(make_square(2, 5), Piece{Color::RED, Fraction(1), false});
+    board.SetPiece(make_square(1, 6), Piece{Color::RED, Fraction(1), false}); // Normal value 1
+    board.SetPiece(make_square(2, 5), Piece{Color::RED, Fraction(1), false}); // Normal value 1
     ASSERT_TRUE(board.IsGameOver());
     
     board.SetRedScore(Fraction(5));
     board.SetBlueScore(Fraction(3));
     Fraction red_final, blue_final;
     board.GetFinalScores(red_final, blue_final);
-    ASSERT_EQ(red_final, Fraction(8));
+    // Red: capture (5) + king(2) + normal(1) + normal(1) = 9
+    // Blue: capture (3) + normal(1) = 4
+    ASSERT_EQ(red_final, Fraction(9));
     ASSERT_EQ(blue_final, Fraction(4));
 }
 
@@ -434,6 +436,41 @@ void test_one_piece_repetition_draw() {
     }
 }
 
+void test_terminal_scores() {
+    // 1. RED has higher score, BLUE has 0 pieces (terminal for BLUE)
+    {
+        Board board;
+        board.Clear();
+        board.SetRedScore(Fraction(50));
+        board.SetBlueScore(Fraction(10));
+        board.SetPiece(make_square(0, 7), Piece{Color::RED, Fraction(5), false});
+        board.SetSideToMove(Color::BLUE); // BLUE turn, 0 legal moves
+
+        Fraction term_score_blue = Search::GetTerminalScore(board, 0);
+        // BLUE side to move, but BLUE final (10) < RED final (55) -> BLUE loses (-1000000)
+        ASSERT_TRUE(term_score_blue.numerator() < -500000);
+
+        board.SetSideToMove(Color::RED);
+        Fraction term_score_red = Search::GetTerminalScore(board, 0);
+        // RED side to move, RED final (55) > BLUE final (10) -> RED wins (+1000000)
+        ASSERT_TRUE(term_score_red.numerator() > 500000);
+    }
+
+    // 2. BLUE has higher score, RED has 0 pieces (terminal for RED)
+    {
+        Board board;
+        board.Clear();
+        board.SetRedScore(Fraction(10));
+        board.SetBlueScore(Fraction(50));
+        board.SetPiece(make_square(7, 0), Piece{Color::BLUE, Fraction(5), false});
+        board.SetSideToMove(Color::RED); // RED turn, 0 legal moves
+
+        Fraction term_score_red = Search::GetTerminalScore(board, 0);
+        // RED side to move, RED final (10) < BLUE final (55) -> RED loses (-1000000)
+        ASSERT_TRUE(term_score_red.numerator() < -500000);
+    }
+}
+
 int main() {
     RUN_TEST(test_fraction_arithmetic);
     RUN_TEST(test_starting_board);
@@ -451,6 +488,7 @@ int main() {
     RUN_TEST(test_sequential_moves_loading);
     RUN_TEST(test_killer_move_ordering);
     RUN_TEST(test_one_piece_repetition_draw);
+    RUN_TEST(test_terminal_scores);
 
     std::cout << "\nTest Results: " << g_passed_tests << " Passed, " << g_failed_tests << " Failed." << std::endl;
     return g_failed_tests > 0 ? 1 : 0;
