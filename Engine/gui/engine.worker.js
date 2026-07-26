@@ -908,18 +908,27 @@ function parseGameOverInfo(board) {
     let winner = 'Draw', reason = '';
 
     const { red: rc, blue: bc } = board.countPieces();
-    if (rc === 0) { winner = 'BLUE'; reason = 'BLUE wins! (Red has no pieces)'; }
-    else if (bc === 0) { winner = 'RED'; reason = 'RED wins! (Blue has no pieces)'; }
-    else if (board.isDrawByNoCaptureLimit()) {
-        reason = 'Draw by 40-move no capture limit';
-        winner = red.gt(blue) ? 'RED' : blue.gt(red) ? 'BLUE' : 'Draw';
+    if (rc === 0) {
+        reason = 'Red has no remaining pieces';
+    } else if (bc === 0) {
+        reason = 'Blue has no remaining pieces';
+    } else if (board.isDrawByNoCaptureLimit()) {
+        reason = '40-move no capture limit reached';
     } else if (board.isDrawByOnePieceRepetition()) {
-        reason = 'Draw by one-piece repetition';
-        winner = 'Draw';
+        reason = 'One-piece repetition draw';
+    } else if (board.isDrawByRepetition()) {
+        reason = 'Threefold repetition draw';
     } else {
-        // No legal moves — current side loses
-        winner = board.sideToMove === Color.RED ? 'BLUE' : 'RED';
-        reason = `${winner} wins! (opponent has no legal moves)`;
+        const side = board.sideToMove === Color.RED ? 'RED' : 'BLUE';
+        reason = `${side} has no legal moves`;
+    }
+
+    if (red.gt(blue)) {
+        winner = 'RED';
+    } else if (blue.gt(red)) {
+        winner = 'BLUE';
+    } else {
+        winner = 'Draw';
     }
 
     return {
@@ -930,7 +939,7 @@ function parseGameOverInfo(board) {
         final_score_blue: blue.toString(),
         capture_score_red: board.redScore.toString(),
         capture_score_blue: board.blueScore.toString(),
-        output: `Game Over! ${reason}\n${winner === 'Draw' ? 'Draw!' : winner + ' wins!'}`
+        output: `Game Over! (${reason})\nFinal Scores - RED: ${red.toString()} | BLUE: ${blue.toString()}\n${winner === 'Draw' ? 'Draw!' : winner + ' wins!'}`
     };
 }
 
