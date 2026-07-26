@@ -617,14 +617,14 @@ function evaluateBoard(board) {
             if (p.isKing) { redEval = redEval.add(KING_BONUS); }
             else { redEval = redEval.add(ADVANCE_STEP.mul(new Fraction(BigInt(sqRow(sq))))); }
             if (sqCol(sq) >= 2 && sqCol(sq) <= 5) redEval = redEval.add(CENTER_BONUS);
-            const op = board.getOp(sq);
+            const op = OPERATORS[sq];
             if (op === OpType.MUL || op === OpType.DIV) redEval = redEval.add(OPERATOR_BONUS);
         } else if (p.color === Color.BLUE) {
             blueEval = blueEval.add(p.value);
             if (p.isKing) { blueEval = blueEval.add(KING_BONUS); }
             else { blueEval = blueEval.add(ADVANCE_STEP.mul(new Fraction(BigInt(7 - sqRow(sq))))); }
             if (sqCol(sq) >= 2 && sqCol(sq) <= 5) blueEval = blueEval.add(CENTER_BONUS);
-            const op = board.getOp(sq);
+            const op = OPERATORS[sq];
             if (op === OpType.MUL || op === OpType.DIV) blueEval = blueEval.add(OPERATOR_BONUS);
         }
     }
