@@ -171,6 +171,29 @@
                     </select>
                 </div>
 
+                <!-- AI Config group (only shown for AI modes: PvE / EvE) -->
+                <div id="ai-config-section">
+                    <div class="settings-group-label" style="margin-top: 12px;">AI Configuration</div>
+
+                    <div class="control-group">
+                        <label for="ai-limit-type">AI Limits</label>
+                        <select id="ai-limit-type">
+                            <option value="depth">Search Depth</option>
+                            <option value="time" selected>Time Limit</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group" id="ai-depth-group" style="display: none;">
+                        <label for="ai-depth">Depth (plies)</label>
+                        <input type="number" id="ai-depth" value="5" min="1" max="15">
+                    </div>
+
+                    <div class="control-group" id="ai-time-group">
+                        <label for="ai-time">Time Limit (ms)</label>
+                        <input type="number" id="ai-time" value="1000" min="100" max="10000" step="500">
+                    </div>
+                </div>
+
                 <!-- Damath Variant group -->
                 <div class="settings-group-label">Damath Variant</div>
 
@@ -188,27 +211,6 @@
                 </div>
                 <div class="control-group variant-hint" id="variant-hint-box">
                     <span class="variant-hint-text" id="variant-hint-text"></span>
-                </div>
-
-                <!-- AI Config group -->
-                <div class="settings-group-label">AI Configuration</div>
-
-                <div class="control-group">
-                    <label for="ai-limit-type">AI Limits</label>
-                    <select id="ai-limit-type">
-                        <option value="depth">Search Depth</option>
-                        <option value="time" selected>Time Limit</option>
-                    </select>
-                </div>
-
-                <div class="control-group" id="ai-depth-group" style="display: none;">
-                    <label for="ai-depth">Depth (plies)</label>
-                    <input type="number" id="ai-depth" value="5" min="1" max="15">
-                </div>
-
-                <div class="control-group" id="ai-time-group">
-                    <label for="ai-time">Time Limit (ms)</label>
-                    <input type="number" id="ai-time" value="1000" min="100" max="10000" step="500">
                 </div>
 
                 <!-- Options group -->

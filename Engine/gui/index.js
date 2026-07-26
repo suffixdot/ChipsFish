@@ -370,6 +370,7 @@ const elModalScoreBlue = document.getElementById('modal-score-blue');
 const elGameMode = document.getElementById('game-mode');
 const elPlayerColor = document.getElementById('player-color');
 const elPlayerColorGroup = document.getElementById('player-color-group');
+const elAiConfigSection = document.getElementById('ai-config-section');
 const elAiLimitType = document.getElementById('ai-limit-type');
 const elAiDepthGroup = document.getElementById('ai-depth-group');
 const elAiDepth = document.getElementById('ai-depth');
@@ -1173,14 +1174,21 @@ async function undoMove() {
 }
 
 
-// UI Event Listeners
-elGameMode.addEventListener('change', () => {
-    if (elGameMode.value === 'pve') {
-        elPlayerColorGroup.style.display = 'flex';
-    } else {
-        elPlayerColorGroup.style.display = 'none';
+function updateModeDependentControls() {
+    const val = elGameMode ? elGameMode.value : 'pve';
+    if (elPlayerColorGroup) {
+        elPlayerColorGroup.style.display = (val === 'pve') ? 'flex' : 'none';
     }
-});
+    if (elAiConfigSection) {
+        // Show AI Config section only if mode involves AI (pve or eve)
+        elAiConfigSection.style.display = (val === 'pve' || val === 'eve') ? 'block' : 'none';
+    }
+}
+
+if (elGameMode) {
+    elGameMode.addEventListener('change', updateModeDependentControls);
+    updateModeDependentControls(); // init on load
+}
 
 function updateVariantHint() {
     const v = DAMATH_VARIANTS[elDamathVariant ? elDamathVariant.value : 'integer'];
