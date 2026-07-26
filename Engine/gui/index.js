@@ -1181,7 +1181,7 @@ function updateModeDependentControls() {
     }
     if (elAiConfigSection) {
         // Show AI Config section only if mode involves AI (pve or eve)
-        elAiConfigSection.style.display = (val === 'pve' || val === 'eve') ? 'block' : 'none';
+        elAiConfigSection.style.display = (val === 'pve' || val === 'eve') ? 'flex' : 'none';
     }
 }
 

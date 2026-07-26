@@ -1070,6 +1070,12 @@ body {
     padding-right: 6px;
 }
 
+#ai-config-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
 .settings-group-label {
     font-family: var(--font-display);
     font-size: 0.75rem;
