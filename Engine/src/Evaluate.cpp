@@ -9,6 +9,7 @@ Fraction EvaluateBoard(const Board& board) {
     const Fraction KING_BONUS(2, 1);
     const Fraction ADVANCEMENT_BONUS_STEP(1, 10);
     const Fraction CENTER_BONUS(1, 20);
+    const Fraction OPERATOR_MUL_DIV_BONUS(1, 15);
 
     for (int sq = 0; sq < 64; ++sq) {
         const Piece& p = board.GetPiece(sq);
@@ -24,6 +25,10 @@ Fraction EvaluateBoard(const Board& board) {
             if (col >= 2 && col <= 5) {
                 red_eval = red_eval + CENTER_BONUS;
             }
+            OpType op = board.GetOperator(sq);
+            if (op == OpType::MUL || op == OpType::DIV) {
+                red_eval = red_eval + OPERATOR_MUL_DIV_BONUS;
+            }
         } else if (p.color == Color::BLUE) {
             blue_eval = blue_eval + p.value;
             if (p.is_king) {
@@ -35,6 +40,10 @@ Fraction EvaluateBoard(const Board& board) {
             int col = square_col(sq);
             if (col >= 2 && col <= 5) {
                 blue_eval = blue_eval + CENTER_BONUS;
+            }
+            OpType op = board.GetOperator(sq);
+            if (op == OpType::MUL || op == OpType::DIV) {
+                blue_eval = blue_eval + OPERATOR_MUL_DIV_BONUS;
             }
         }
     }

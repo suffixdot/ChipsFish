@@ -18,6 +18,7 @@ namespace {
 
     const int MAX_SEARCH_DEPTH = 64;
     Move killer_moves[MAX_SEARCH_DEPTH][2];
+    int history_table[64][64];
 
     int ScoreMove(const Move& m, Square tt_from, Square tt_to, int depth_from_root) {
         Square dest = m.steps.empty() ? m.from : m.steps.back();
@@ -38,9 +39,9 @@ namespace {
             }
         }
 
-        int score = 0;
+        int score = std::min(history_table[m.from][dest], 7000);
         if (m.promoted) {
-            score += 1000;
+            score += 500;
         }
         int from_row = square_row(m.from);
         int to_row = square_row(dest);
@@ -151,10 +152,22 @@ namespace {
         Fraction best_score = -INF;
         Move best_move;
 
-        for (const auto& sm : scored_moves) {
-            const Move& m = sm.second;
+        for (size_t i = 0; i < scored_moves.size(); ++i) {
+            const Move& m = scored_moves[i].second;
             board.MakeMove(m);
-            Fraction score = -Negamax(board, depth - 1, -beta, -alpha, tt, depth_from_root + 1);
+
+            Fraction score(0);
+            if (i == 0) {
+                score = -Negamax(board, depth - 1, -beta, -alpha, tt, depth_from_root + 1);
+            } else {
+                // Zero-window search (PVS / NegaScout)
+                Fraction zero_beta = alpha + Fraction(1, 100);
+                score = -Negamax(board, depth - 1, -zero_beta, -alpha, tt, depth_from_root + 1);
+                // If zero-window search failed high and is within window, re-search with full window
+                if (score > alpha && score < beta) {
+                    score = -Negamax(board, depth - 1, -beta, -alpha, tt, depth_from_root + 1);
+                }
+            }
             board.UndoMove();
 
             if (timeout_flag) return Fraction(0);
@@ -171,10 +184,14 @@ namespace {
 
             if (alpha >= beta) {
                 flag = TT_LOWERBOUND;
-                if (!m.is_capture() && depth_from_root < MAX_SEARCH_DEPTH) {
-                    if (killer_moves[depth_from_root][0] != m) {
-                        killer_moves[depth_from_root][1] = killer_moves[depth_from_root][0];
-                        killer_moves[depth_from_root][0] = m;
+                if (!m.is_capture()) {
+                    Square dest = m.steps.empty() ? m.from : m.steps.back();
+                    history_table[m.from][dest] += depth * depth;
+                    if (depth_from_root < MAX_SEARCH_DEPTH) {
+                        if (killer_moves[depth_from_root][0] != m) {
+                            killer_moves[depth_from_root][1] = killer_moves[depth_from_root][0];
+                            killer_moves[depth_from_root][0] = m;
+                        }
                     }
                 }
                 break; // Beta cutoff
@@ -219,6 +236,11 @@ Move SearchBestMove(Board& board, int depth_limit, int time_limit_ms_arg, Transp
         killer_moves[i][0] = Move{};
         killer_moves[i][1] = Move{};
     }
+    for (int f = 0; f < 64; ++f) {
+        for (int t = 0; t < 64; ++t) {
+            history_table[f][t] = 0;
+        }
+    }
 
     Move best_move;
 
@@ -260,12 +282,29 @@ Move SearchBestMove(Board& board, int depth_limit, int time_limit_ms_arg, Transp
             std::cout << std::endl;
         }
     } else {
-        // Iterative deepening
+        // Iterative deepening with Aspiration Windows
+        Fraction last_score(0);
         for (int d = 1; d <= target_depth; ++d) {
-            Fraction score = Negamax(board, d, -INF, INF, tt, 0);
+            Fraction alpha = -INF;
+            Fraction beta = INF;
+
+            if (d >= 4) {
+                Fraction delta(1, 2);
+                alpha = last_score - delta;
+                beta = last_score + delta;
+            }
+
+            Fraction score = Negamax(board, d, alpha, beta, tt, 0);
+
+            if (!timeout_flag && (score <= alpha || score >= beta)) {
+                // Aspiration window fail -> re-search with full window [-INF, INF]
+                score = Negamax(board, d, -INF, INF, tt, 0);
+            }
+
             if (timeout_flag) {
                 break; // Use the best move from the last fully searched depth
             }
+            last_score = score;
 
             Square tt_from = SQ_NONE, tt_to = SQ_NONE;
             Fraction tt_score(0);

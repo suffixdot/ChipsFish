@@ -605,6 +605,7 @@ function generateLegalMoves(board, midMoveProm) {
 const KING_BONUS         = new Fraction(2n, 1n);
 const ADVANCE_STEP       = new Fraction(1n, 10n);
 const CENTER_BONUS       = new Fraction(1n, 20n);
+const OPERATOR_BONUS     = new Fraction(1n, 15n);
 
 function evaluateBoard(board) {
     let redEval  = Fraction.ZERO;
@@ -616,11 +617,15 @@ function evaluateBoard(board) {
             if (p.isKing) { redEval = redEval.add(KING_BONUS); }
             else { redEval = redEval.add(ADVANCE_STEP.mul(new Fraction(BigInt(sqRow(sq))))); }
             if (sqCol(sq) >= 2 && sqCol(sq) <= 5) redEval = redEval.add(CENTER_BONUS);
+            const op = board.getOp(sq);
+            if (op === OpType.MUL || op === OpType.DIV) redEval = redEval.add(OPERATOR_BONUS);
         } else if (p.color === Color.BLUE) {
             blueEval = blueEval.add(p.value);
             if (p.isKing) { blueEval = blueEval.add(KING_BONUS); }
             else { blueEval = blueEval.add(ADVANCE_STEP.mul(new Fraction(BigInt(7 - sqRow(sq))))); }
             if (sqCol(sq) >= 2 && sqCol(sq) <= 5) blueEval = blueEval.add(CENTER_BONUS);
+            const op = board.getOp(sq);
+            if (op === OpType.MUL || op === OpType.DIV) blueEval = blueEval.add(OPERATOR_BONUS);
         }
     }
     redEval  = redEval.add(board.redScore);
@@ -678,6 +683,8 @@ let searchTimeLimit = 0;
 let searchTimeout   = false;
 let searchNodes     = 0;
 const killerMoves   = Array.from({ length: MAX_DEPTH }, () => [null, null]);
+// History heuristic table [from][to]: incremented by depth^2 on beta cutoffs
+const historyTable  = Array.from({ length: 64 }, () => new Int32Array(64));
 
 function scoreMoveForSort(m, board, ttFromSq, ttToSq, depthFromRoot) {
     const dest = m.steps.length > 0 ? m.steps[m.steps.length - 1] : m.from;
@@ -690,8 +697,8 @@ function scoreMoveForSort(m, board, ttFromSq, ttToSq, depthFromRoot) {
         if (k[0] && movesEqual(m, k[0])) return 9000;
         if (k[1] && movesEqual(m, k[1])) return 8000;
     }
-    let score = 0;
-    if (m.promoted) score += 1000;
+    let score = Math.min(historyTable[m.from][dest], 7000);
+    if (m.promoted) score += 500;
     const toRow = sqRow(dest);
     score += Math.abs(toRow - sqRow(m.from)) * 10;
     return score;
@@ -759,9 +766,24 @@ function negamax(board, depth, alpha, beta, tt, depthFromRoot, midMoveProm) {
     let best = Fraction.NEG_INF;
     let bestMove = null;
 
-    for (const [, m] of scored) {
+    for (let i = 0; i < scored.length; i++) {
+        const m = scored[i][1];
         board.makeMove(m);
-        const score = negamax(board, depth - 1, beta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm).neg();
+
+        let score;
+        if (i === 0) {
+            // First move: full window search
+            score = negamax(board, depth - 1, beta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm).neg();
+        } else {
+            // PVS: zero-window search first
+            const zwBeta = alpha.add(new Fraction(1n, 100n));
+            score = negamax(board, depth - 1, zwBeta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm).neg();
+            // If it beat alpha and is within the full window, re-search with full window
+            if (score.gt(alpha) && score.lt(beta)) {
+                score = negamax(board, depth - 1, beta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm).neg();
+            }
+        }
+
         board.undoMove();
         if (searchTimeout) return Fraction.ZERO;
 
@@ -769,9 +791,13 @@ function negamax(board, depth, alpha, beta, tt, depthFromRoot, midMoveProm) {
         if (score.gt(alpha)) { alpha = score; flag = TT_EXACT; }
         if (alpha.gte(beta)) {
             flag = TT_LOWERBOUND;
-            if (!m.isCapture && depthFromRoot < MAX_DEPTH) {
-                const k = killerMoves[depthFromRoot];
-                if (!k[0] || !movesEqual(m, k[0])) { k[1] = k[0]; k[0] = m; }
+            if (!m.isCapture) {
+                const dest = m.steps.length > 0 ? m.steps[m.steps.length - 1] : m.from;
+                historyTable[m.from][dest] += depth * depth;
+                if (depthFromRoot < MAX_DEPTH) {
+                    const k = killerMoves[depthFromRoot];
+                    if (!k[0] || !movesEqual(m, k[0])) { k[1] = k[0]; k[0] = m; }
+                }
             }
             break;
         }
@@ -790,6 +816,8 @@ function searchBestMove(board, depthLimit, timeLimitMs, midMoveProm) {
     searchTimeout   = false;
     searchNodes     = 0;
     for (let i = 0; i < MAX_DEPTH; i++) killerMoves[i] = [null, null];
+    // Reset history table for new search
+    for (let f = 0; f < 64; f++) historyTable[f].fill(0);
 
     const tt = new TranspositionTable();
     const rootMoves = generateLegalMoves(board, midMoveProm);
@@ -812,10 +840,29 @@ function searchBestMove(board, depthLimit, timeLimitMs, midMoveProm) {
         const elapsed = Date.now() - searchStartTime;
         outputLines.push(`info depth ${maxDepth} nodes ${searchNodes} time ${elapsed}`);
     } else {
-        // Iterative deepening
+        // Iterative deepening with Aspiration Windows
+        let lastScore = Fraction.ZERO;
         for (let d = 1; d <= maxDepth; d++) {
-            negamax(board, d, Fraction.NEG_INF, Fraction.INF, tt, 0, midMoveProm);
+            let alpha = Fraction.NEG_INF;
+            let beta  = Fraction.INF;
+
+            if (d >= 4) {
+                // Narrow aspiration window around last iteration's score
+                const delta = new Fraction(1n, 2n);
+                alpha = lastScore.sub(delta);
+                beta  = lastScore.add(delta);
+            }
+
+            let score = negamax(board, d, alpha, beta, tt, 0, midMoveProm);
+
+            if (!searchTimeout && (score.lte(alpha) || score.gte(beta))) {
+                // Aspiration window failed — re-search with full window
+                score = negamax(board, d, Fraction.NEG_INF, Fraction.INF, tt, 0, midMoveProm);
+            }
+
             if (searchTimeout) break;
+            lastScore = score;
+
             const ttEntry = tt.probe(boardKey(board));
             if (ttEntry) {
                 for (const m of rootMoves) {
