@@ -65,10 +65,16 @@ class Fraction {
     }
 
     static parse(s) {
-        s = s.trim();
+        if (!s) return Fraction.ZERO;
+        s = String(s).trim();
+        if (!s) return Fraction.ZERO;
         const slash = s.indexOf('/');
-        if (slash === -1) return new Fraction(BigInt(s));
-        return new Fraction(BigInt(s.slice(0, slash)), BigInt(s.slice(slash + 1)));
+        try {
+            if (slash === -1) return new Fraction(BigInt(s));
+            return new Fraction(BigInt(s.slice(0, slash)), BigInt(s.slice(slash + 1)));
+        } catch (_) {
+            return Fraction.ZERO;
+        }
     }
 
     mulInt(n) { return new Fraction(this.num * BigInt(n), this.den); }
@@ -908,6 +914,10 @@ function parseGameOverInfo(board) {
         is_game_over: true,
         winner,
         game_over_reason: reason,
+        final_score_red: red.toString(),
+        final_score_blue: blue.toString(),
+        capture_score_red: board.redScore.toString(),
+        capture_score_blue: board.blueScore.toString(),
         output: `Game Over! ${reason}\n${winner === 'Draw' ? 'Draw!' : winner + ' wins!'}`
     };
 }
@@ -1004,7 +1014,11 @@ function handleMessage(type, params) {
         }
 
         const { bestMove, output } = searchBestMove(board, targetDepth, actualTimeMs, mid_move_promotion);
-        if (!bestMove) return { bestmove: null, output: 'No legal moves.', from_cache: false };
+        if (!bestMove) {
+            const gameOver = parseGameOverInfo(board);
+            if (gameOver) return { bestmove: null, ...gameOver, output: 'No legal moves available.', from_cache: false };
+            return { bestmove: null, output: 'No legal moves.', from_cache: false };
+        }
 
         const bestmove = moveToApiPath(bestMove);
         bookSave(fen, bestmove, targetDepth);

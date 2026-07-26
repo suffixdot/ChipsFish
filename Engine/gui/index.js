@@ -951,13 +951,16 @@ async function executeMoveOnBackend(steps, fromCoord) {
             playSound('move');
         }
 
+        // ALWAYS update the board position and scores, even for game-ending moves!
+        if (res.fen) {
+            parseFen(res.fen);
+            renderBoard();
+        }
+
         if (res.is_game_over) {
             handleGameOver(res);
             return;
         }
-
-        parseFen(res.fen);
-        renderBoard();
 
         // Load next legal moves
         const nextMoves = await apiFetch('/api/moves', { fen: currentFen });
@@ -1036,7 +1039,11 @@ async function playAiMove() {
             // Apply move
             executeMoveOnBackend(stepsStr, fromStr);
         } else {
-            logToConsole("AI returned no moves. Game over?", "error");
+            if (res.is_game_over) {
+                handleGameOver(res);
+            } else {
+                logToConsole("AI returned no moves. Game over?", "system");
+            }
         }
 
     } catch (err) {
@@ -1053,7 +1060,14 @@ function handleGameOver(res) {
     if (elEngineStatusText) elEngineStatusText.innerText = 'Game Over';
     logToConsole("GAME OVER!", "system");
     if (res.game_over_reason) logToConsole(res.game_over_reason, "system");
-    logToConsole(`Final Scores - RED: ${redScore} | BLUE: ${blueScore}`, "system");
+
+    const displayRed = (res && res.final_score_red) ? res.final_score_red : redScore;
+    const displayBlue = (res && res.final_score_blue) ? res.final_score_blue : blueScore;
+
+    logToConsole(`Capture Scores - RED: ${redScore} | BLUE: ${blueScore}`, "system");
+    if (res && res.final_score_red && res.final_score_blue) {
+        logToConsole(`Final Match Scores (with remaining pieces) - RED: ${displayRed} | BLUE: ${displayBlue}`, "system");
+    }
 
     let statusText = '';
     if (res.winner === 'Draw') {
@@ -1071,8 +1085,8 @@ function handleGameOver(res) {
     }
 
     elGameOverText.innerText = statusText;
-    elModalScoreRed.innerText = redScore;
-    elModalScoreBlue.innerText = blueScore;
+    elModalScoreRed.innerText = displayRed;
+    elModalScoreBlue.innerText = displayBlue;
     elGameOverModal.classList.add('show');
 }
 
