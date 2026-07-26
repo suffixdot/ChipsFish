@@ -1,39 +1,27 @@
 #!/bin/bash
-# Change directory to the Engine folder where project files are located
-cd "$(dirname "$0")/Engine"
+# Change directory to the GUI folder
+cd "$(dirname "$0")/Engine/gui"
 
 echo "========================================"
-echo "    Starting Damath Engine Web GUI      "
+echo "        ChipsFish — JS Engine          "
 echo "========================================"
 
-# Kill any existing process on port 8000 to avoid "Address already in use"
-echo "Checking for existing processes on port 8000..."
-EXISTING_PID=$(lsof -ti :8000)
+# Kill any existing process on port 8080 to avoid "Address already in use"
+EXISTING_PID=$(lsof -ti :8080)
 if [ -n "$EXISTING_PID" ]; then
-    echo "Killing existing process on port 8000 (PID: $EXISTING_PID)..."
+    echo "Freeing port 8080 (PID: $EXISTING_PID)..."
     kill -9 $EXISTING_PID
     sleep 0.5
 fi
 
-# Make sure the C++ binary is compiled first (synchronously), then start the server
-echo "Building C++ engine (if needed)..."
-make damath_engine
-if [ $? -ne 0 ]; then
-    echo "ERROR: Failed to compile damath_engine. Check your C++ source."
-    exit 1
-fi
-
-# Start the Python server in the background
-echo "Starting GUI server..."
-python3 gui_server.py &
+# Start a simple static file server (Python 3 ships with every Mac)
+echo "Starting local server at http://localhost:8080 ..."
+python3 -m http.server 8080 &
 SERVER_PID=$!
 
-# Wait for the server to boot up
-sleep 1.5
+# Give it a moment to boot, then open in the default browser
+sleep 1
+open http://localhost:8080
 
-# Open the local address in the default browser
-echo "Opening web interface in browser..."
-open http://localhost:8000
-
-# Keep the terminal open and wait for the server process to exit (e.g. via Ctrl+C)
+echo "Press Ctrl+C to stop the server."
 wait $SERVER_PID

@@ -461,17 +461,14 @@ function closeSettingsModal() {
 
 
 // API Helpers
+// Routes all game API calls to the local JS engine (engine.worker.js via engine.js)
+// instead of the old Python localhost:8000 server.
 async function apiFetch(endpoint, data = {}) {
     try {
-        const response = await fetch(`http://localhost:8000${endpoint}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        if (!response.ok) {
-            throw new Error(`API error: ${response.statusText}`);
+        if (typeof window.engineApiFetch !== 'function') {
+            throw new Error('JS engine not loaded. Make sure engine.js is included before index.js.');
         }
-        return await response.json();
+        return await window.engineApiFetch(endpoint, data);
     } catch (err) {
         logToConsole(`Error: ${err.message}`, 'error');
         throw err;
@@ -1029,6 +1026,11 @@ async function playAiMove() {
             // Log move
             const pathStr = res.bestmove.map(s => `(${s[0]},${s[1]})`).join(' -> ');
             logToConsole(`AI plays move: ${pathStr}`, 'system');
+
+            // Save FEN to undo history (mirrors makeUserMove) so undo can
+            // step back through the AI's move in PvE mode.
+            moveHistory.push(currentFen);
+            elBtnUndo.disabled = false;
 
             // Apply move
             executeMoveOnBackend(stepsStr, fromStr);
