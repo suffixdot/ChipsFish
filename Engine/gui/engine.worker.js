@@ -712,6 +712,8 @@ function evaluateBoard(board, personality = 'passive') {
     //       - Seek positions where the OPPONENT will be forced into high-scoring captures
     //       - Avoid promotion (king doubles your piece value in the final score = bad)
     if (board.variant === 'thermo') {
+        const isAggressive = personality === 'aggressive';
+
         // 1. Base: accumulated capture scores (FEN-persisted) + remaining piece values
         redEval  = redEval.add(board.redScore);
         blueEval = blueEval.add(board.blueScore);
@@ -719,7 +721,6 @@ function evaluateBoard(board, personality = 'passive') {
             const p = board.getPiece(sq);
             if (p.color === Color.RED) {
                 // Kings are bad in thermo: their value doubles in the final score.
-                // The ×2 here correctly penalises red for having kings.
                 const val = p.isKing ? p.value.mul(new Fraction(2, 1)) : p.value;
                 redEval = redEval.add(val);
             } else if (p.color === Color.BLUE) {
@@ -728,41 +729,93 @@ function evaluateBoard(board, personality = 'passive') {
             }
         }
 
-        // 2. Capture-threat preview: for every capture available RIGHT NOW,
-        //    add 1/4 of its score to the CAPTURER's eval as a "pending cost".
-        //    This teaches the AI to avoid positions where it is stuck with
-        //    high-scoring forced captures, and to seek the inverse for the opponent.
+        // 2. Capture-threat preview (including Kings and personality weighting):
+        //    • PASSIVE: Penalizes capturer for pending high-score captures (weight 0.45).
+        //    • AGGRESSIVE: Heavily rewards FORCING opponent into pending captures (weight 0.85 for opponent threat vs 0.25 for own threat).
         const _dc = [-1, -1, 1, 1], _dr = [-1, 1, -1, 1];
         for (let sq = 0; sq < 64; sq++) {
             const p = board.getPiece(sq);
             if (p.color === Color.NONE) continue;
             const col = sqCol(sq), row = sqRow(sq);
+
             for (let d = 0; d < 4; d++) {
-                const adjCol = col + _dc[d], adjRow = row + _dr[d];
-                if (adjCol < 0 || adjCol >= 8 || adjRow < 0 || adjRow >= 8) continue;
-                const adjSq = makeSquare(adjCol, adjRow);
-                const adjP = board.getPiece(adjSq);
-                if (adjP.color === Color.NONE || adjP.color === p.color) continue;
-                // Check landing square is in bounds and empty
-                const landCol = col + 2 * _dc[d], landRow = row + 2 * _dr[d];
-                if (landCol < 0 || landCol >= 8 || landRow < 0 || landRow >= 8) continue;
-                const landSq = makeSquare(landCol, landRow);
-                if (board.getPiece(landSq).color !== Color.NONE) continue;
-                // Compute what the capturer would gain from this capture
-                const op = OPERATORS[landSq];
-                const detail = calcScoreThermoDetail(p, adjP, op);
-                if (detail.scoreNum <= 0) continue;  // zero-score capture, no threat
-                // Weight at 1/4 — significant but not overwhelming vs the base terms
-                const threat = new Fraction(BigInt(Math.round(detail.scoreNum / 4)));
-                if (p.color === Color.RED) {
-                    redEval  = redEval.add(threat);   // red would gain score (bad for red)
+                if (!p.isKing) {
+                    const adjCol = col + _dc[d], adjRow = row + _dr[d];
+                    if (adjCol < 0 || adjCol >= 8 || adjRow < 0 || adjRow >= 8) continue;
+                    const adjSq = makeSquare(adjCol, adjRow);
+                    const adjP = board.getPiece(adjSq);
+                    if (adjP.color === Color.NONE || adjP.color === p.color) continue;
+
+                    const landCol = col + 2 * _dc[d], landRow = row + 2 * _dr[d];
+                    if (landCol < 0 || landCol >= 8 || landRow < 0 || landRow >= 8) continue;
+                    const landSq = makeSquare(landCol, landRow);
+                    if (board.getPiece(landSq).color !== Color.NONE) continue;
+
+                    const op = OPERATORS[landSq];
+                    const detail = calcScoreThermoDetail(p, adjP, op);
+                    if (detail.scoreNum <= 0) continue;
+
+                    let threatWeight = 0.45;
+                    if (isAggressive) {
+                        threatWeight = (p.color === board.sideToMove) ? 0.25 : 0.85;
+                    }
+                    const threat = new Fraction(BigInt(Math.round(detail.scoreNum * threatWeight)));
+                    if (p.color === Color.RED) redEval = redEval.add(threat);
+                    else blueEval = blueEval.add(threat);
                 } else {
-                    blueEval = blueEval.add(threat);  // blue would gain score (bad for blue)
+                    // King long-range capture threats
+                    for (let step = 1; step < 8; step++) {
+                        const adjCol = col + step * _dc[d], adjRow = row + step * _dr[d];
+                        if (adjCol < 0 || adjCol >= 8 || adjRow < 0 || adjRow >= 8) break;
+                        const adjSq = makeSquare(adjCol, adjRow);
+                        const taken = board.getPiece(adjSq);
+                        if (taken.color === p.color) break;
+                        if (taken.color !== Color.NONE) {
+                            for (let landStep = step + 1; landStep < 8; landStep++) {
+                                const landCol = col + landStep * _dc[d], landRow = row + landStep * _dr[d];
+                                if (landCol < 0 || landCol >= 8 || landRow < 0 || landRow >= 8) break;
+                                const landSq = makeSquare(landCol, landRow);
+                                if (board.getPiece(landSq).color !== Color.NONE) break;
+
+                                const op = OPERATORS[landSq];
+                                const detail = calcScoreThermoDetail(p, taken, op);
+                                if (detail.scoreNum <= 0) continue;
+
+                                let threatWeight = 0.45;
+                                if (isAggressive) {
+                                    threatWeight = (p.color === board.sideToMove) ? 0.25 : 0.85;
+                                }
+                                const threat = new Fraction(BigInt(Math.round(detail.scoreNum * threatWeight)));
+                                if (p.color === Color.RED) redEval = redEval.add(threat);
+                                else blueEval = blueEval.add(threat);
+                            }
+                            break;
+                        }
+                    }
                 }
             }
         }
 
-        // 3. Negate: higher eval → LOWER projected score → winning in thermo.
+        // 3. Position Structure & Exposure Penalties/Bonuses by Personality
+        for (let sq = 0; sq < 64; sq++) {
+            const p = board.getPiece(sq);
+            if (p.color === Color.NONE) continue;
+            const op = OPERATORS[sq];
+            if (op === OpType.MUL || op === OpType.ADD) {
+                const exposureCost = new Fraction(p.value.num > 10n ? 15n : 5n, 1n);
+                if (isAggressive) {
+                    if (p.color === board.sideToMove) {
+                        if (p.color === Color.RED) redEval = redEval.sub(exposureCost);
+                        else blueEval = blueEval.sub(exposureCost);
+                    }
+                } else {
+                    if (p.color === Color.RED) redEval = redEval.add(exposureCost);
+                    else blueEval = blueEval.add(exposureCost);
+                }
+            }
+        }
+
+        // 4. Negate: higher eval → LOWER projected score → winning in thermo.
         if (board.sideToMove === Color.RED) return blueEval.sub(redEval);
         return redEval.sub(blueEval);
     }

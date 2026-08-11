@@ -162,14 +162,15 @@ class OpeningBook:
             else:
                 self.data = {}
 
-    def get(self, fen: str, target_depth: int = 1):
+    def get(self, fen: str, target_depth: int = 1, variant: str = 'rational', personality: str = 'passive'):
         """
         Look up FEN in opening book.
         Returns (bestmove_coords, depth) if found with stored depth >= target_depth,
         otherwise (None, 0).
         """
         with self._lock:
-            entry = self.data.get(fen)
+            key = f"{variant}:{personality}:{fen}"
+            entry = self.data.get(key) or self.data.get(fen)
             if entry:
                 stored_depth = entry.get("depth", 0)
                 bestmove = entry.get("bestmove")
@@ -177,16 +178,17 @@ class OpeningBook:
                     return bestmove, stored_depth
             return None, 0
 
-    def save(self, fen: str, bestmove: list, depth: int):
+    def save(self, fen: str, bestmove: list, depth: int, variant: str = 'rational', personality: str = 'passive'):
         """Save an analyzed best move to disk."""
         if not fen or not bestmove:
             return
         with self._lock:
-            existing = self.data.get(fen)
+            key = f"{variant}:{personality}:{fen}"
+            existing = self.data.get(key)
             if existing and existing.get("depth", 0) > depth:
                 return
 
-            self.data[fen] = {
+            self.data[key] = {
                 "bestmove": bestmove,
                 "depth": depth,
                 "timestamp": time.time()
