@@ -854,6 +854,67 @@ function quiescence(board, alpha, beta, midMoveProm, depthFromRoot = 0, personal
     return best;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AGGRESSIVE PERSONALITY — Position Complexity Scoring
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Scores how "tricky" the current board position is for the side to move (the opponent).
+ *
+ * A high score means:
+ *   - The opponent has ONE narrow best response (hard to find)
+ *   - All other moves are significantly worse for them (easy to blunder)
+ *   - High variance in outcomes across opponent moves (complex tactical landscape)
+ *
+ * This drives the Aggressive personality to prefer positions where the opponent
+ * must find a specific "only move" rather than safe positions where any
+ * reasonable reply keeps the game roughly equal.
+ *
+ * Metric:
+ *   vals = sorted evaluations of each opponent response (from our perspective)
+ *   trapDepth = vals[1] - vals[0]   → gap between opponent's best and 2nd-best reply
+ *   variance  = statistical variance → overall positional complexity
+ *   score     = trapDepth × 4.0 + sqrt(variance)
+ *
+ * @param {Board} board        - Position AFTER we made our candidate move (opponent to move)
+ * @param {boolean} midMoveProm
+ * @param {string} personality
+ * @returns {number} complexity score (higher = more traps for opponent)
+ */
+function scorePositionComplexity(board, midMoveProm, personality) {
+    const oppMoves = generateLegalMoves(board, midMoveProm);
+    if (oppMoves.length === 0) return 1000; // terminal — we won, maximally "complex"
+    if (oppMoves.length === 1) return 300;  // forced reply — moderately tricky
+
+    const vals = [];
+    for (const m of oppMoves) {
+        board.makeMove(m);
+        // evaluateBoard returns position value from the CURRENT side-to-move's perspective.
+        // After opponent's move it's our turn again, so positive = good for us.
+        // Higher val here = opponent just made a bad move (good for us).
+        const v = evaluateBoard(board, personality).toFloat();
+        board.undoMove();
+        vals.push(v);
+    }
+
+    // Sort ascending: vals[0] = opponent's best reply (worst outcome for us)
+    //                 vals[1] = their 2nd best, etc.
+    vals.sort((a, b) => a - b);
+
+    // Trap depth: how much worse is the 2nd-best response vs the best?
+    // Large gap = opponent needs the one correct move or they hand us an advantage.
+    const trapDepth = vals.length > 1 ? vals[1] - vals[0] : 0;
+
+    // Variance: how wildly different are the outcomes across all opponent moves?
+    // High variance = chaotic, complex position with many tempting wrong paths.
+    const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+    const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length;
+
+    // Trap depth weighted heavily (4×) because "narrow winning reply" is the
+    // strongest indicator of opponent mistake potential.
+    return trapDepth * 4.0 + Math.sqrt(Math.max(0, variance));
+}
+
 function negamax(board, depth, alpha, beta, tt, depthFromRoot, midMoveProm, personality = 'passive') {
     if (searchTimeout) return Fraction.ZERO;
     searchNodes++;
@@ -995,6 +1056,68 @@ function searchBestMove(board, depthLimit, timeLimitMs, midMoveProm, personality
             outputLines.push(`info depth ${d} nodes ${searchNodes} time ${elapsed}`);
         }
     }
+
+    // ── Aggressive post-processing ────────────────────────────────────────────
+    // After the main search finds the objective best move, the aggressive
+    // personality re-evaluates all root moves to find the one that creates the
+    // hardest position for the opponent — even if it scores slightly less.
+    //
+    // Strategy:
+    //   1. Score all root moves using the now-warm Transposition Table (O(1) each)
+    //   2. Filter to "near-best" candidates within AGGRO_THRESHOLD of the best score
+    //   3. For each candidate, measure the complexity of the resulting position
+    //      (how tricky it is for the opponent to navigate correctly)
+    //   4. Pick the candidate with highest complexity score
+    // ─────────────────────────────────────────────────────────────────────────
+    if (personality === 'aggressive' && !searchTimeout && rootMoves.length > 1) {
+        const AGGRO_THRESHOLD = 1.0;   // accept up to 1.0 pts worse for more complexity
+        const MAX_CANDIDATES  = 10;    // cap candidate set to limit post-processing time
+
+        // Score all root moves via warm TT lookup (essentially free after IDS)
+        const rootScored = [];
+        for (const m of rootMoves) {
+            board.makeMove(m);
+            const posKey = boardKey(board);
+            const entry  = tt.probe(posKey);
+            // TT score is from the resulting position's side-to-move perspective.
+            // Negate it to get our (root side's) perspective.
+            const score = entry
+                ? -entry.score.toFloat()
+                : -evaluateBoard(board, personality).toFloat();
+            board.undoMove();
+            rootScored.push({ move: m, score });
+        }
+
+        // Sort best-first and filter to the near-best candidate set
+        rootScored.sort((a, b) => b.score - a.score);
+        const topScore   = rootScored[0].score;
+        const candidates = rootScored
+            .filter(r => topScore - r.score <= AGGRO_THRESHOLD)
+            .slice(0, MAX_CANDIDATES);
+
+        // Evaluate position complexity for each candidate
+        let bestComplexity = -Infinity;
+        let aggressiveBest  = null;
+
+        for (const { move } of candidates) {
+            board.makeMove(move);
+            const complexity = scorePositionComplexity(board, midMoveProm, personality);
+            board.undoMove();
+            if (complexity > bestComplexity) {
+                bestComplexity = complexity;
+                aggressiveBest = move;
+            }
+        }
+
+        if (aggressiveBest) {
+            bestMove = aggressiveBest;
+            outputLines.push(
+                `aggressive: complexity=${bestComplexity.toFixed(2)} ` +
+                `candidates=${candidates.length} threshold=${AGGRO_THRESHOLD}`
+            );
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     const dest = bestMove.steps.length > 0 ? bestMove.steps[bestMove.steps.length - 1] : bestMove.from;
     outputLines.push(`bestmove (${sqCol(bestMove.from)},${sqRow(bestMove.from)}) -> (${sqCol(dest)},${sqRow(dest)})`);
