@@ -483,7 +483,16 @@ class DamathHandler(http.server.BaseHTTPRequestHandler):
                         if "Draw by" in line:
                             game_over_reason = line.strip()
                         elif "wins!" in line:
-                            winner = line.replace("wins!", "").strip()
+                            raw_winner = line.replace("wins!", "").strip()
+                            if req_data.get("variant") == "thermo":
+                                if raw_winner == "RED":
+                                    winner = "BLUE"
+                                elif raw_winner == "BLUE":
+                                    winner = "RED"
+                                else:
+                                    winner = raw_winner
+                            else:
+                                winner = raw_winner
                         elif "Draw!" in line:
                             winner = "Draw"
 

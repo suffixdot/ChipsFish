@@ -403,6 +403,8 @@ const elMidMovePromo = document.getElementById('mid-move-promo');
 const elShowBestMove = document.getElementById('show-best-move');
 const elBestMoveDepthGroup = document.getElementById('best-move-depth-group');
 const elBestMoveDepth = document.getElementById('best-move-depth');
+const elBestMovePersonalityGroup = document.getElementById('best-move-personality-group');
+const elBestMovePersonality = document.getElementById('best-move-personality');
 const elBestMoveOverlay = document.getElementById('best-move-overlay');
 const elBtnFlipBoard = document.getElementById('btn-flip-board');
 const elFlipBoardCheck = document.getElementById('flip-board-check');
@@ -826,7 +828,8 @@ async function requestBestMove() {
             fen: currentFen,
             mid_move_promotion: midMovePromotion,
             depth: targetDepth,
-            personality: aiPersonality
+            personality: elBestMovePersonality ? elBestMovePersonality.value : 'passive',
+            variant: activeDamathVariant
         });
 
         if (myId !== bestMoveRequestId) return;
@@ -956,7 +959,8 @@ async function executeMoveOnBackend(steps, fromCoord) {
         const res = await apiFetch('/api/move', {
             fen: currentFen,
             move: movePayload.map(c => c.split(',').map(Number)),
-            mid_move_promotion: midMovePromotion
+            mid_move_promotion: midMovePromotion,
+            variant: activeDamathVariant
         });
 
         // Print engine output to console
@@ -987,7 +991,7 @@ async function executeMoveOnBackend(steps, fromCoord) {
         }
 
         // Load next legal moves
-        const nextMoves = await apiFetch('/api/moves', { fen: currentFen });
+        const nextMoves = await apiFetch('/api/moves', { fen: currentFen, variant: activeDamathVariant });
         legalMoves = nextMoves.moves;
 
         // Check if next turn is AI's
@@ -1026,7 +1030,8 @@ async function playAiMove() {
     let payload = {
         fen: currentFen,
         mid_move_promotion: midMovePromotion,
-        personality: aiPersonality
+        personality: aiPersonality,
+        variant: activeDamathVariant
     };
     if (limitType === 'depth') {
         let depthVal = parseInt(elAiDepth.value) || 5;
@@ -1043,7 +1048,7 @@ async function playAiMove() {
 
         if (res.output) {
             const searchLines = res.output.split('\n')
-                .filter(l => l.includes('info depth') || l.includes('bestmove'))
+                .filter(l => l.includes('info depth') || l.includes('bestmove') || l.includes('aggressive'))
                 .join('\n');
             if (searchLines) logToConsole(searchLines, 'engine');
         }
@@ -1135,6 +1140,9 @@ async function startGame() {
     if (elBestMoveDepthGroup) {
         elBestMoveDepthGroup.style.display = showBestMove ? 'flex' : 'none';
     }
+    if (elBestMovePersonalityGroup) {
+        elBestMovePersonalityGroup.style.display = showBestMove ? 'flex' : 'none';
+    }
 
     if (elBadgeGameMode) elBadgeGameMode.innerText = activeGameMode.toUpperCase();
     if (elEngineStatusText) elEngineStatusText.innerText = 'Ready';
@@ -1208,7 +1216,7 @@ async function undoMove() {
     clearSelection();
     
     // Get legal moves for this FEN
-    const movesRes = await apiFetch('/api/moves', { fen: currentFen });
+    const movesRes = await apiFetch('/api/moves', { fen: currentFen, variant: activeDamathVariant });
     legalMoves = movesRes.moves;
     
 }
@@ -1263,6 +1271,9 @@ elShowBestMove.addEventListener('change', () => {
     showBestMove = elShowBestMove.checked;
     if (elBestMoveDepthGroup) {
         elBestMoveDepthGroup.style.display = showBestMove ? 'flex' : 'none';
+    }
+    if (elBestMovePersonalityGroup) {
+        elBestMovePersonalityGroup.style.display = showBestMove ? 'flex' : 'none';
     }
     if (!showBestMove) {
         clearBestMoveArrow();

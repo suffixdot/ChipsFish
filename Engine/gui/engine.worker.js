@@ -376,37 +376,16 @@ class Board {
     }
 
     getFinalScores(variant = this.variant) {
-        if (variant === 'thermo') {
-            let redG = this.thermoScores.red.g;
-            let redDegC = this.thermoScores.red.degC;
-            let redGDegC = this.thermoScores.red.gDegC;
-
-            let blueG = this.thermoScores.blue.g;
-            let blueDegC = this.thermoScores.blue.degC;
-            let blueGDegC = this.thermoScores.blue.gDegC;
-
-            for (let sq = 0; sq < 64; sq++) {
-                const p = this.board[sq];
-                if (p.color === Color.RED) {
-                    const u = getThermoUnit(p.value);
-                    const val = Number(p.value.num < 0n ? -p.value.num : p.value.num);
-                    const mult = p.isKing ? 2 : 1;
-                    if (u === 'g') redG += val * mult;
-                    else if (u === 'degC') redDegC += val * mult;
-                } else if (p.color === Color.BLUE) {
-                    const u = getThermoUnit(p.value);
-                    const val = Number(p.value.num < 0n ? -p.value.num : p.value.num);
-                    const mult = p.isKing ? 2 : 1;
-                    if (u === 'g') blueG += val * mult;
-                    else if (u === 'degC') blueDegC += val * mult;
-                }
-            }
-
-            const finalRed = BigInt((redG * redDegC) + redGDegC);
-            const finalBlue = BigInt((blueG * blueDegC) + blueGDegC);
-            return { red: new Fraction(finalRed), blue: new Fraction(finalBlue) };
-        }
-
+        // For ALL variants (including thermo), the accumulated capture score is
+        // persisted in redScore/blueScore inside the FEN.  The old thermo branch
+        // tried to use thermoScores.{g,degC,gDegC} but those are in-memory only
+        // and reset to zero every time a new Board is created from a FEN string,
+        // so the computed score was always wrong.
+        //
+        // We unify: start from redScore/blueScore (FEN-persisted) and add the
+        // value of remaining pieces on the board (×2 for kings), exactly like
+        // every other variant.  parseGameOverInfo already applies the correct
+        // lower-wins comparison for the thermo variant.
         let red = this.redScore, blue = this.blueScore;
         for (let sq = 0; sq < 64; sq++) {
             const p = this.board[sq];
@@ -722,7 +701,73 @@ const AGGRESSIVE_CAPTURE_BONUS   = new Fraction(1n, 2n);
 function evaluateBoard(board, personality = 'passive') {
     let redEval  = Fraction.ZERO;
     let blueEval = Fraction.ZERO;
-    
+
+    // ── THERMO SCI DAMA: lower total score wins ───────────────────────────────
+    // Strategy:
+    //   • Every capture is double-bad for the capturer:
+    //       1. Their capture score goes UP   (bad — they want low score)
+    //       2. Their opponent's piece count goes DOWN (reducing opponent's remaining-piece total, also bad for the capturer since they want the opponent to have a HIGH projected final score)
+    //   • So the AI should:
+    //       - Avoid positions where IT will be forced into high-scoring captures
+    //       - Seek positions where the OPPONENT will be forced into high-scoring captures
+    //       - Avoid promotion (king doubles your piece value in the final score = bad)
+    if (board.variant === 'thermo') {
+        // 1. Base: accumulated capture scores (FEN-persisted) + remaining piece values
+        redEval  = redEval.add(board.redScore);
+        blueEval = blueEval.add(board.blueScore);
+        for (let sq = 0; sq < 64; sq++) {
+            const p = board.getPiece(sq);
+            if (p.color === Color.RED) {
+                // Kings are bad in thermo: their value doubles in the final score.
+                // The ×2 here correctly penalises red for having kings.
+                const val = p.isKing ? p.value.mul(new Fraction(2, 1)) : p.value;
+                redEval = redEval.add(val);
+            } else if (p.color === Color.BLUE) {
+                const val = p.isKing ? p.value.mul(new Fraction(2, 1)) : p.value;
+                blueEval = blueEval.add(val);
+            }
+        }
+
+        // 2. Capture-threat preview: for every capture available RIGHT NOW,
+        //    add 1/4 of its score to the CAPTURER's eval as a "pending cost".
+        //    This teaches the AI to avoid positions where it is stuck with
+        //    high-scoring forced captures, and to seek the inverse for the opponent.
+        const _dc = [-1, -1, 1, 1], _dr = [-1, 1, -1, 1];
+        for (let sq = 0; sq < 64; sq++) {
+            const p = board.getPiece(sq);
+            if (p.color === Color.NONE) continue;
+            const col = sqCol(sq), row = sqRow(sq);
+            for (let d = 0; d < 4; d++) {
+                const adjCol = col + _dc[d], adjRow = row + _dr[d];
+                if (adjCol < 0 || adjCol >= 8 || adjRow < 0 || adjRow >= 8) continue;
+                const adjSq = makeSquare(adjCol, adjRow);
+                const adjP = board.getPiece(adjSq);
+                if (adjP.color === Color.NONE || adjP.color === p.color) continue;
+                // Check landing square is in bounds and empty
+                const landCol = col + 2 * _dc[d], landRow = row + 2 * _dr[d];
+                if (landCol < 0 || landCol >= 8 || landRow < 0 || landRow >= 8) continue;
+                const landSq = makeSquare(landCol, landRow);
+                if (board.getPiece(landSq).color !== Color.NONE) continue;
+                // Compute what the capturer would gain from this capture
+                const op = OPERATORS[landSq];
+                const detail = calcScoreThermoDetail(p, adjP, op);
+                if (detail.scoreNum <= 0) continue;  // zero-score capture, no threat
+                // Weight at 1/4 — significant but not overwhelming vs the base terms
+                const threat = new Fraction(BigInt(Math.round(detail.scoreNum / 4)));
+                if (p.color === Color.RED) {
+                    redEval  = redEval.add(threat);   // red would gain score (bad for red)
+                } else {
+                    blueEval = blueEval.add(threat);  // blue would gain score (bad for blue)
+                }
+            }
+        }
+
+        // 3. Negate: higher eval → LOWER projected score → winning in thermo.
+        if (board.sideToMove === Color.RED) return blueEval.sub(redEval);
+        return redEval.sub(blueEval);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // Select weights based on personality
     const isAggressive = personality === 'aggressive';
     const kingBonus = isAggressive ? AGGRESSIVE_KING_BONUS : KING_BONUS;
@@ -760,12 +805,16 @@ function getTerminalScore(board, depthFromRoot = 0) {
         return Fraction.ZERO;
     }
     const { red, blue } = board.getFinalScores();
-    const myScore = board.sideToMove === Color.RED ? red : blue;
+    const myScore  = board.sideToMove === Color.RED ? red  : blue;
     const oppScore = board.sideToMove === Color.RED ? blue : red;
 
-    if (myScore.gt(oppScore)) {
+    // THERMO SCI DAMA: lower score wins — invert the win/loss condition.
+    const iWin  = board.variant === 'thermo' ? myScore.lt(oppScore)  : myScore.gt(oppScore);
+    const iLose = board.variant === 'thermo' ? myScore.gt(oppScore)  : myScore.lt(oppScore);
+
+    if (iWin) {
         return new Fraction(1000000 - depthFromRoot, 1);
-    } else if (myScore.lt(oppScore)) {
+    } else if (iLose) {
         return new Fraction(-1000000 + depthFromRoot, 1);
     } else {
         return Fraction.ZERO;
@@ -811,6 +860,11 @@ function scoreMoveForSort(m, board, ttFromSq, ttToSq, depthFromRoot) {
     const dest = m.steps.length > 0 ? m.steps[m.steps.length - 1] : m.from;
     if (m.from === ttFromSq && dest === ttToSq) return 1000000;
     if (m.isCapture) {
+        // THERMO SCI DAMA: lower score is better — prefer captures that gain LESS score.
+        // Subtract scoreChange so that moves producing a smaller score rank higher.
+        if (board.variant === 'thermo') {
+            return 10000 - Math.round(m.scoreChange.toFloat() * 100);
+        }
         return 10000 + Math.round(m.scoreChange.toFloat() * 100);
     }
     if (depthFromRoot < MAX_DEPTH) {
@@ -819,7 +873,7 @@ function scoreMoveForSort(m, board, ttFromSq, ttToSq, depthFromRoot) {
         if (k[1] && movesEqual(m, k[1])) return 8000;
     }
     let score = Math.min(historyTable[m.from][dest], 7000);
-    if (m.promoted) score += 500;
+    if (m.promoted) score += (board.variant === 'thermo' ? -500 : 500);
     const toRow = sqRow(dest);
     score += Math.abs(toRow - sqRow(m.from)) * 10;
     return score;
@@ -839,7 +893,12 @@ function quiescence(board, alpha, beta, midMoveProm, depthFromRoot = 0, personal
     if (moves.length === 0) return getTerminalScore(board, depthFromRoot);
     if (!moves[0].isCapture) return evaluateBoard(board, personality);
 
-    moves.sort((a, b) => b.scoreChange.toFloat() - a.scoreChange.toFloat());
+    // THERMO SCI DAMA: lower score wins — prefer captures that yield less score.
+    if (board.variant === 'thermo') {
+        moves.sort((a, b) => a.scoreChange.toFloat() - b.scoreChange.toFloat());
+    } else {
+        moves.sort((a, b) => b.scoreChange.toFloat() - a.scoreChange.toFloat());
+    }
 
     let best = Fraction.NEG_INF;
     for (const m of moves) {
@@ -1035,11 +1094,11 @@ function searchBestMove(board, depthLimit, timeLimitMs, midMoveProm, personality
                 beta  = lastScore.add(delta);
             }
 
-            let score = negamax(board, d, alpha, beta, tt, 0, midMoveProm);
+            let score = negamax(board, d, alpha, beta, tt, 0, midMoveProm, personality);
 
             if (!searchTimeout && (score.lte(alpha) || score.gte(beta))) {
                 // Aspiration window failed — re-search with full window
-                score = negamax(board, d, Fraction.NEG_INF, Fraction.INF, tt, 0, midMoveProm);
+                score = negamax(board, d, Fraction.NEG_INF, Fraction.INF, tt, 0, midMoveProm, personality);
             }
 
             if (searchTimeout) break;
@@ -1145,19 +1204,21 @@ function saveBook() {
     } catch (_) {}
 }
 
-function bookGet(fen, targetDepth = 1) {
+function bookGet(fen, targetDepth = 1, variant = 'rational', personality = 'passive') {
     if (!openingBook) loadBook();
-    const entry = openingBook[fen];
+    const key = `${variant}:${personality}:${fen}`;
+    const entry = openingBook[key];
     if (entry && entry.depth >= targetDepth && entry.bestmove) return { bestmove: entry.bestmove, depth: entry.depth };
     return null;
 }
 
-function bookSave(fen, bestmove, depth) {
+function bookSave(fen, bestmove, depth, variant = 'rational', personality = 'passive') {
     if (!fen || !bestmove) return;
     if (!openingBook) loadBook();
-    const existing = openingBook[fen];
+    const key = `${variant}:${personality}:${fen}`;
+    const existing = openingBook[key];
     if (existing && existing.depth > depth) return;
-    openingBook[fen] = { bestmove, depth, timestamp: Date.now() };
+    openingBook[key] = { bestmove, depth, timestamp: Date.now() };
     saveBook();
 }
 
@@ -1214,9 +1275,11 @@ function parseGameOverInfo(board) {
         reason = `${side} has no legal moves`;
     }
 
-    if (red.gt(blue)) {
+    // THERMO SCI DAMA: lower score wins.
+    const thermoVariant = board.variant === 'thermo';
+    if (thermoVariant ? red.lt(blue) : red.gt(blue)) {
         winner = 'RED';
-    } else if (blue.gt(red)) {
+    } else if (thermoVariant ? blue.lt(red) : blue.gt(red)) {
         winner = 'BLUE';
     } else {
         winner = 'Draw';
@@ -1264,6 +1327,8 @@ function handleMessage(type, params) {
         const variant = params.variant || 'rational';
         currentWorkerVariant = variant;
         const fen = buildVariantFen(variant);
+        persistentBoard.variant = variant;
+        persistentBoard.loadPosition(fen);
         return { fen };
     }
 
@@ -1293,28 +1358,30 @@ function handleMessage(type, params) {
 
     if (type === 'move') {
         const { fen, move: movePath, mid_move_promotion = false } = params;
-        const board = new Board();
-        board.variant = activeVariant;
-        board.midMovePromotion = mid_move_promotion;
-        board.loadPosition(fen);
-        const moves = generateLegalMoves(board, mid_move_promotion);
+        // Sync persistentBoard to current position if different
+        if (persistentBoard.getFen() !== fen) {
+            persistentBoard.variant = activeVariant;
+            persistentBoard.loadPosition(fen);
+        }
+        persistentBoard.midMovePromotion = mid_move_promotion;
+        const moves = generateLegalMoves(persistentBoard, mid_move_promotion);
 
         // movePath is [[col,row], ...] with from first
         const pathSqs = movePath.map(([c, r]) => makeSquare(c, r));
         const found = findMoveByPath(moves, pathSqs);
         if (!found) return { fen: null, is_game_over: false, game_over_reason: '', winner: '', output: 'Illegal move.' };
 
-        board.makeMove(found);
+        persistentBoard.makeMove(found);
 
         const promoted = found.promoted;
         let output = '';
         if (promoted) output += 'Piece promoted to King!\n';
         if (found.isCapture) output += `Captured ${found.capturedSquares.length} piece(s). Score change: ${found.scoreChange.toString()}\n`;
 
-        const gameOver = parseGameOverInfo(board);
-        if (gameOver) return { ...gameOver, fen: board.getFen(), output: output + gameOver.output };
+        const gameOver = parseGameOverInfo(persistentBoard);
+        if (gameOver) return { ...gameOver, fen: persistentBoard.getFen(), output: output + gameOver.output };
 
-        return { fen: board.getFen(), is_game_over: false, game_over_reason: '', winner: '', output };
+        return { fen: persistentBoard.getFen(), is_game_over: false, game_over_reason: '', winner: '', output };
     }
 
     if (type === 'ai_move') {
@@ -1328,7 +1395,7 @@ function handleMessage(type, params) {
         const actualTimeMs = (depth > 0) ? 0 : (time_ms > 0 ? time_ms : 0);
 
         // Check opening book
-        const cached = bookGet(fen, targetDepth);
+        const cached = bookGet(fen, targetDepth, activeVariant, personality);
         if (cached) {
             return { bestmove: cached.bestmove, output: `Loaded best move from memory (depth ${cached.depth})`, from_cache: true };
         }
@@ -1341,7 +1408,7 @@ function handleMessage(type, params) {
         }
 
         const bestmove = moveToApiPath(bestMove);
-        bookSave(fen, bestmove, targetDepth);
+        bookSave(fen, bestmove, targetDepth, activeVariant, personality);
         return { bestmove, output, from_cache: false };
     }
 
@@ -1353,7 +1420,7 @@ function handleMessage(type, params) {
         board.loadPosition(fen);
 
         const targetDepth = Math.min(15, Math.max(1, depth));
-        const cached = bookGet(fen, targetDepth);
+        const cached = bookGet(fen, targetDepth, activeVariant, personality);
         if (cached) {
             return { bestmove: cached.bestmove, output: `Loaded best move from memory (depth ${cached.depth})`, from_cache: true, cached_depth: cached.depth };
         }
@@ -1362,7 +1429,7 @@ function handleMessage(type, params) {
         if (!bestMove) return { bestmove: null, output: 'No legal moves.', from_cache: false };
 
         const bestmove = moveToApiPath(bestMove);
-        bookSave(fen, bestmove, targetDepth);
+        bookSave(fen, bestmove, targetDepth, activeVariant, personality);
         return { bestmove, output, from_cache: false };
     }
 
