@@ -17,6 +17,7 @@ let midMovePromotion = false;
 let showBestMove = false;
 let bestMoveRequestId = 0; // used to cancel stale in-flight requests
 let activeDamathVariant = 'integer'; // current Damath variant
+let aiPersonality = 'passive'; // 'passive' or 'aggressive'
 
 // ---------------------------------------------------------------------------
 // Damath Variant Chip Label Mapping
@@ -31,7 +32,8 @@ const DAMATH_VARIANTS = {
     integer: { label: 'Integer', grade: 'Grade 7', hint: 'Chips: -11 to 10 (official layout)' },
     rational: { label: 'Rational', grade: 'Grade 8', hint: 'Chips: -11/10 to 10/10 (official layout)' },
     radical: { label: 'Radical', grade: 'Grade 9', hint: 'Chips: radical expressions (e.g. -9√2, 144√8)' },
-    polynomial: { label: 'Polynomial', grade: 'Grade 10', hint: 'Chips: polynomial terms (e.g. 78xy², -45y)' }
+    polynomial: { label: 'Polynomial', grade: 'Grade 10', hint: 'Chips: polynomial terms (e.g. 78xy², -45y)' },
+    thermo: { label: 'Thermo Sci-Dama', grade: 'Grade 10', hint: 'Chips: Mass in grams (37g, 13g, 7g, 19g, 29g, 3g) & Temperature in °C (23°C, 5°C, 2°C, 31°C, 17°C, 11°C)' }
 };
 
 // ---------------------------------------------------------------------------
@@ -105,6 +107,11 @@ const VARIANT_FEN_TO_KEY = {
         '-55': '0',  '-45': '-3', '66': '10',  '78': '-7',
         // Row 2 slots I-L: -21,-15,28,36
         '-21': '-9', '-15': '6',  '28': '-1',  '36': '4'
+    },
+    thermo: {
+        '37': '37', '23': '23', '13': '13', '5':  '5',
+        '2':  '2',  '7':  '7',  '31': '31', '19': '19',
+        '29': '29', '17': '17', '3':  '3',  '11': '11'
     }
 };
 
@@ -118,6 +125,21 @@ const FEN_TO_KEY = VARIANT_FEN_TO_KEY.rational;
 // Keys are the 12 canonical integer keys above.
 // ---------------------------------------------------------------------------
 const VARIANT_CHIP_DATA = {
+    // ── Thermo Sci-Dama (Grade 10) ─────────────────────────────────────────
+    thermo: {
+        '37': { raw: '37g',  html: '37<span class="chip-unit">g</span>' },
+        '23': { raw: '23°C', html: '23<span class="chip-unit">°C</span>' },
+        '13': { raw: '13g',  html: '13<span class="chip-unit">g</span>' },
+        '5':  { raw: '5°C',  html: '5<span class="chip-unit">°C</span>' },
+        '2':  { raw: '2°C',  html: '2<span class="chip-unit">°C</span>' },
+        '7':  { raw: '7g',   html: '7<span class="chip-unit">g</span>' },
+        '31': { raw: '31°C', html: '31<span class="chip-unit">°C</span>' },
+        '19': { raw: '19g',  html: '19<span class="chip-unit">g</span>' },
+        '29': { raw: '29g',  html: '29<span class="chip-unit">g</span>' },
+        '17': { raw: '17°C', html: '17<span class="chip-unit">°C</span>' },
+        '3':  { raw: '3g',   html: '3<span class="chip-unit">g</span>' },
+        '11': { raw: '11°C', html: '11<span class="chip-unit">°C</span>' }
+    },
     // ── Integer (Grade 7) ──────────────────────────────────────────────────
     integer: {
         '-11': { raw: '-11',  html: '-11' },
@@ -376,6 +398,7 @@ const elAiDepthGroup = document.getElementById('ai-depth-group');
 const elAiDepth = document.getElementById('ai-depth');
 const elAiTimeGroup = document.getElementById('ai-time-group');
 const elAiTime = document.getElementById('ai-time');
+const elAiPersonality = document.getElementById('ai-personality');
 const elMidMovePromo = document.getElementById('mid-move-promo');
 const elShowBestMove = document.getElementById('show-best-move');
 const elBestMoveDepthGroup = document.getElementById('best-move-depth-group');
@@ -802,7 +825,8 @@ async function requestBestMove() {
         const res = await apiFetch('/api/best_move', {
             fen: currentFen,
             mid_move_promotion: midMovePromotion,
-            depth: targetDepth
+            depth: targetDepth,
+            personality: aiPersonality
         });
 
         if (myId !== bestMoveRequestId) return;
@@ -996,12 +1020,13 @@ async function playAiMove() {
     if (isAiThinking) return;
     isAiThinking = true;
     if (elEngineStatusText) elEngineStatusText.innerText = 'Thinking...';
-    logToConsole("AI is thinking...", "system");
+    logToConsole(`AI (${aiPersonality}) is thinking...`, "system");
 
     const limitType = elAiLimitType.value;
     let payload = {
         fen: currentFen,
-        mid_move_promotion: midMovePromotion
+        mid_move_promotion: midMovePromotion,
+        personality: aiPersonality
     };
     if (limitType === 'depth') {
         let depthVal = parseInt(elAiDepth.value) || 5;
@@ -1105,6 +1130,7 @@ async function startGame() {
     midMovePromotion = elMidMovePromo.checked;
     showBestMove = elShowBestMove.checked;
     activeDamathVariant = elDamathVariant ? elDamathVariant.value : 'integer';
+    aiPersonality = elAiPersonality ? elAiPersonality.value : 'passive';
 
     if (elBestMoveDepthGroup) {
         elBestMoveDepthGroup.style.display = showBestMove ? 'flex' : 'none';
@@ -1118,7 +1144,7 @@ async function startGame() {
     const badge = getBestMoveBadge();
     if (badge) badge.classList.remove('visible');
 
-    logToConsole(`Starting new game. Mode: ${activeGameMode.toUpperCase()}`, 'system');
+    logToConsole(`Starting new game. Mode: ${activeGameMode.toUpperCase()}, AI Personality: ${aiPersonality}`, 'system');
 
     try {
         const initData = await apiFetch('/api/initialize', { variant: activeDamathVariant });

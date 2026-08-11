@@ -133,6 +133,7 @@ const VARIANT_VALUES = {
     whole:      ['11','8','5','2','0','3','10','7','9','6','1','4'],
     fraction:   ['11/10','8/10','5/10','2/10','12/10','3/10','10/10','7/10','9/10','6/10','1/10','4/10'],
     polynomial: ['-3','-1','6','10','-55','-45','66','78','-21','-15','28','36'],
+    thermo:     ['37','23','13','5','2','7','31','19','29','17','3','11'],
 };
 
 function buildVariantFen(variant = 'rational') {
@@ -171,6 +172,11 @@ class Board {
         this.history    = [];   // array of { sideToMove, redScore, blueScore }
         this.moveHistory = [];  // array of Move objects
         this.midMovePromotion = false;
+        this.variant    = 'rational';
+        this.thermoScores = {
+            red: { g: 0, degC: 0, gDegC: 0 },
+            blue: { g: 0, degC: 0, gDegC: 0 }
+        };
     }
 
     getPiece(sq) { return this.board[sq]; }
@@ -249,7 +255,13 @@ class Board {
 
     makeMove(m) {
         // Record position key BEFORE the move for repetition detection
-        this.history.push({ sideToMove: this.sideToMove, redScore: this.redScore, blueScore: this.blueScore, posKey: this.getFen() });
+        this.history.push({
+            sideToMove: this.sideToMove,
+            redScore: this.redScore,
+            blueScore: this.blueScore,
+            posKey: this.getFen(),
+            thermoScores: JSON.parse(JSON.stringify(this.thermoScores))
+        });
         this.moveHistory.push(m);
 
         let p = { ...this.board[m.from], value: this.board[m.from].value };
@@ -266,8 +278,22 @@ class Board {
 
         if (this.sideToMove === Color.RED) {
             this.redScore = this.redScore.add(m.scoreChange);
+            if (m.isCapture && this.variant === 'thermo' && m.stepDetails) {
+                for (const detail of m.stepDetails) {
+                    if (detail.unit === 'g') this.thermoScores.red.g += detail.scoreNum;
+                    else if (detail.unit === 'degC') this.thermoScores.red.degC += detail.scoreNum;
+                    else if (detail.unit === 'g_degC') this.thermoScores.red.gDegC += detail.scoreNum;
+                }
+            }
         } else {
             this.blueScore = this.blueScore.add(m.scoreChange);
+            if (m.isCapture && this.variant === 'thermo' && m.stepDetails) {
+                for (const detail of m.stepDetails) {
+                    if (detail.unit === 'g') this.thermoScores.blue.g += detail.scoreNum;
+                    else if (detail.unit === 'degC') this.thermoScores.blue.degC += detail.scoreNum;
+                    else if (detail.unit === 'g_degC') this.thermoScores.blue.gDegC += detail.scoreNum;
+                }
+            }
         }
         this.sideToMove = flipColor(this.sideToMove);
     }
@@ -291,6 +317,9 @@ class Board {
         this.sideToMove = prev.sideToMove;
         this.redScore   = prev.redScore;
         this.blueScore  = prev.blueScore;
+        if (prev.thermoScores) {
+            this.thermoScores = prev.thermoScores;
+        }
     }
 
     isDrawByRepetition() {
@@ -346,7 +375,38 @@ class Board {
         return moves.length === 0;
     }
 
-    getFinalScores() {
+    getFinalScores(variant = this.variant) {
+        if (variant === 'thermo') {
+            let redG = this.thermoScores.red.g;
+            let redDegC = this.thermoScores.red.degC;
+            let redGDegC = this.thermoScores.red.gDegC;
+
+            let blueG = this.thermoScores.blue.g;
+            let blueDegC = this.thermoScores.blue.degC;
+            let blueGDegC = this.thermoScores.blue.gDegC;
+
+            for (let sq = 0; sq < 64; sq++) {
+                const p = this.board[sq];
+                if (p.color === Color.RED) {
+                    const u = getThermoUnit(p.value);
+                    const val = Number(p.value.num < 0n ? -p.value.num : p.value.num);
+                    const mult = p.isKing ? 2 : 1;
+                    if (u === 'g') redG += val * mult;
+                    else if (u === 'degC') redDegC += val * mult;
+                } else if (p.color === Color.BLUE) {
+                    const u = getThermoUnit(p.value);
+                    const val = Number(p.value.num < 0n ? -p.value.num : p.value.num);
+                    const mult = p.isKing ? 2 : 1;
+                    if (u === 'g') blueG += val * mult;
+                    else if (u === 'degC') blueDegC += val * mult;
+                }
+            }
+
+            const finalRed = BigInt((redG * redDegC) + redGDegC);
+            const finalBlue = BigInt((blueG * blueDegC) + blueGDegC);
+            return { red: new Fraction(finalRed), blue: new Fraction(finalBlue) };
+        }
+
         let red = this.redScore, blue = this.blueScore;
         for (let sq = 0; sq < 64; sq++) {
             const p = this.board[sq];
@@ -438,7 +498,48 @@ function movesEqual(a, b) {
 // MOVE GENERATION
 // ─────────────────────────────────────────────────────────────────────────────
 
-function calcScore(taker, taken, op) {
+const THERMO_MASS_CHIPS = new Set([37, 13, 7, 19, 29, 3]);
+const THERMO_TEMP_CHIPS = new Set([23, 5, 2, 31, 17, 11]);
+
+function getThermoUnit(valFraction) {
+    if (!valFraction) return 'g';
+    const num = Number(valFraction.num < 0n ? -valFraction.num : valFraction.num);
+    if (THERMO_MASS_CHIPS.has(num)) return 'g';
+    if (THERMO_TEMP_CHIPS.has(num)) return 'degC';
+    return 'g';
+}
+
+function calcScoreThermoDetail(taker, taken, op) {
+    const u1 = getThermoUnit(taker.value);
+    const u2 = getThermoUnit(taken.value);
+    const v1 = Number(taker.value.num < 0n ? -taker.value.num : taker.value.num);
+    const v2 = Number(taken.value.num < 0n ? -taken.value.num : taken.value.num);
+    let baseVal = 0;
+    let unit = null;
+
+    if (op === OpType.ADD) {
+        if (u1 === u2) { baseVal = v1 + v2; unit = u1; }
+    } else if (op === OpType.SUB) {
+        if (u1 === u2 && (v1 - v2) > 0) { baseVal = v1 - v2; unit = u1; }
+    } else if (op === OpType.MUL) {
+        if (u1 !== u2) { baseVal = v1 * v2; unit = 'g_degC'; }
+    }
+
+    if (baseVal <= 0) return { score: Fraction.ZERO, unit: null, scoreNum: 0 };
+
+    let mult = 1;
+    if (taker.isKing) mult *= 2;
+    if (taken.isKing) mult *= 2;
+
+    const totalScore = baseVal * mult;
+    return { score: new Fraction(BigInt(totalScore)), unit, scoreNum: totalScore };
+}
+
+function calcScore(taker, taken, op, variant = 'rational') {
+    if (variant === 'thermo') {
+        return calcScoreThermoDetail(taker, taken, op).score;
+    }
+
     let base;
     if (op === OpType.ADD) base = taker.value.add(taken.value);
     else if (op === OpType.SUB) base = taker.value.sub(taken.value);
@@ -476,13 +577,15 @@ function getCapturesRec(curSq, piece, currentMove, allCaptures, board, us, midMo
                     board.setPiece(adjSq, { color: Color.NONE, value: Fraction.ZERO, isKing: false });
                     const promotedThisStep = (us === Color.RED && landRow === 7) || (us === Color.BLUE && landRow === 0);
                     const nextPiece = promotedThisStep ? { ...piece, isKing: true } : piece;
-                    const stepScore = calcScore(nextPiece, taken, OPERATORS[landSq]);
+                    const stepDetail = (board.variant === 'thermo') ? calcScoreThermoDetail(nextPiece, taken, OPERATORS[landSq]) : null;
+                    const stepScore = stepDetail ? stepDetail.score : calcScore(nextPiece, taken, OPERATORS[landSq], board.variant);
                     const nextMove = {
                         from: currentMove.from,
                         steps: [...currentMove.steps, landSq],
                         capturedSquares: [...currentMove.capturedSquares, adjSq],
                         capturedPieces:  [...currentMove.capturedPieces, taken],
                         stepScores: [...currentMove.stepScores, stepScore],
+                        stepDetails: stepDetail ? [...(currentMove.stepDetails || []), stepDetail] : [],
                         scoreChange: currentMove.scoreChange.add(stepScore),
                         promoted: currentMove.promoted || promotedThisStep,
                         isCapture: true,
@@ -516,13 +619,15 @@ function getCapturesRec(curSq, piece, currentMove, allCaptures, board, us, midMo
                         if (landP.color !== Color.NONE) break;
                         hasNext = true;
                         board.setPiece(adjSq, { color: Color.NONE, value: Fraction.ZERO, isKing: false });
-                        const stepScore = calcScore(piece, taken, OPERATORS[landSq]);
+                        const stepDetail = (board.variant === 'thermo') ? calcScoreThermoDetail(piece, taken, OPERATORS[landSq]) : null;
+                        const stepScore = stepDetail ? stepDetail.score : calcScore(piece, taken, OPERATORS[landSq], board.variant);
                         const nextMove = {
                             from: currentMove.from,
                             steps: [...currentMove.steps, landSq],
                             capturedSquares: [...currentMove.capturedSquares, adjSq],
                             capturedPieces:  [...currentMove.capturedPieces, taken],
                             stepScores: [...currentMove.stepScores, stepScore],
+                            stepDetails: stepDetail ? [...(currentMove.stepDetails || []), stepDetail] : [],
                             scoreChange: currentMove.scoreChange.add(stepScore),
                             promoted: currentMove.promoted,
                             isCapture: true,
@@ -607,25 +712,41 @@ const ADVANCE_STEP       = new Fraction(1n, 10n);
 const CENTER_BONUS       = new Fraction(1n, 20n);
 const OPERATOR_BONUS     = new Fraction(1n, 15n);
 
-function evaluateBoard(board) {
+// Aggressive personality weights
+const AGGRESSIVE_KING_BONUS      = new Fraction(3n, 1n);
+const AGGRESSIVE_ADVANCE_STEP    = new Fraction(1n, 5n);
+const AGGRESSIVE_CENTER_BONUS    = new Fraction(1n, 10n);
+const AGGRESSIVE_OPERATOR_BONUS  = new Fraction(1n, 8n);
+const AGGRESSIVE_CAPTURE_BONUS   = new Fraction(1n, 2n);
+
+function evaluateBoard(board, personality = 'passive') {
     let redEval  = Fraction.ZERO;
     let blueEval = Fraction.ZERO;
+    
+    // Select weights based on personality
+    const isAggressive = personality === 'aggressive';
+    const kingBonus = isAggressive ? AGGRESSIVE_KING_BONUS : KING_BONUS;
+    const advanceStep = isAggressive ? AGGRESSIVE_ADVANCE_STEP : ADVANCE_STEP;
+    const centerBonus = isAggressive ? AGGRESSIVE_CENTER_BONUS : CENTER_BONUS;
+    const operatorBonus = isAggressive ? AGGRESSIVE_OPERATOR_BONUS : OPERATOR_BONUS;
+    const captureBonus = isAggressive ? AGGRESSIVE_CAPTURE_BONUS : Fraction.ZERO;
+
     for (let sq = 0; sq < 64; sq++) {
         const p = board.getPiece(sq);
         if (p.color === Color.RED) {
             redEval = redEval.add(p.value);
-            if (p.isKing) { redEval = redEval.add(KING_BONUS); }
-            else { redEval = redEval.add(ADVANCE_STEP.mul(new Fraction(BigInt(sqRow(sq))))); }
-            if (sqCol(sq) >= 2 && sqCol(sq) <= 5) redEval = redEval.add(CENTER_BONUS);
+            if (p.isKing) { redEval = redEval.add(kingBonus); }
+            else { redEval = redEval.add(advanceStep.mul(new Fraction(BigInt(sqRow(sq))))); }
+            if (sqCol(sq) >= 2 && sqCol(sq) <= 5) redEval = redEval.add(centerBonus);
             const op = OPERATORS[sq];
-            if (op === OpType.MUL || op === OpType.DIV) redEval = redEval.add(OPERATOR_BONUS);
+            if (op === OpType.MUL || op === OpType.DIV) redEval = redEval.add(operatorBonus);
         } else if (p.color === Color.BLUE) {
             blueEval = blueEval.add(p.value);
-            if (p.isKing) { blueEval = blueEval.add(KING_BONUS); }
-            else { blueEval = blueEval.add(ADVANCE_STEP.mul(new Fraction(BigInt(7 - sqRow(sq))))); }
-            if (sqCol(sq) >= 2 && sqCol(sq) <= 5) blueEval = blueEval.add(CENTER_BONUS);
+            if (p.isKing) { blueEval = blueEval.add(kingBonus); }
+            else { blueEval = blueEval.add(advanceStep.mul(new Fraction(BigInt(7 - sqRow(sq))))); }
+            if (sqCol(sq) >= 2 && sqCol(sq) <= 5) blueEval = blueEval.add(centerBonus);
             const op = OPERATORS[sq];
-            if (op === OpType.MUL || op === OpType.DIV) blueEval = blueEval.add(OPERATOR_BONUS);
+            if (op === OpType.MUL || op === OpType.DIV) blueEval = blueEval.add(operatorBonus);
         }
     }
     redEval  = redEval.add(board.redScore);
@@ -704,7 +825,7 @@ function scoreMoveForSort(m, board, ttFromSq, ttToSq, depthFromRoot) {
     return score;
 }
 
-function quiescence(board, alpha, beta, midMoveProm, depthFromRoot = 0) {
+function quiescence(board, alpha, beta, midMoveProm, depthFromRoot = 0, personality = 'passive') {
     if (searchTimeout) return Fraction.ZERO;
     searchNodes++;
     if (searchTimeLimit > 0 && searchNodes % 512 === 0) {
@@ -716,14 +837,14 @@ function quiescence(board, alpha, beta, midMoveProm, depthFromRoot = 0) {
 
     const moves = generateLegalMoves(board, midMoveProm);
     if (moves.length === 0) return getTerminalScore(board, depthFromRoot);
-    if (!moves[0].isCapture) return evaluateBoard(board);
+    if (!moves[0].isCapture) return evaluateBoard(board, personality);
 
     moves.sort((a, b) => b.scoreChange.toFloat() - a.scoreChange.toFloat());
 
     let best = Fraction.NEG_INF;
     for (const m of moves) {
         board.makeMove(m);
-        const score = quiescence(board, beta.neg(), alpha.neg(), midMoveProm, depthFromRoot + 1).neg();
+        const score = quiescence(board, beta.neg(), alpha.neg(), midMoveProm, depthFromRoot + 1, personality).neg();
         board.undoMove();
         if (searchTimeout) return Fraction.ZERO;
         if (score.gt(best)) best = score;
@@ -733,7 +854,7 @@ function quiescence(board, alpha, beta, midMoveProm, depthFromRoot = 0) {
     return best;
 }
 
-function negamax(board, depth, alpha, beta, tt, depthFromRoot, midMoveProm) {
+function negamax(board, depth, alpha, beta, tt, depthFromRoot, midMoveProm, personality = 'passive') {
     if (searchTimeout) return Fraction.ZERO;
     searchNodes++;
     if (searchTimeLimit > 0 && searchNodes % 512 === 0) {
@@ -757,7 +878,7 @@ function negamax(board, depth, alpha, beta, tt, depthFromRoot, midMoveProm) {
     }
     if (ttEntry) { ttFromSq = ttEntry.fromSq; ttToSq = ttEntry.toSq; }
 
-    if (depth <= 0) return quiescence(board, alpha, beta, midMoveProm, depthFromRoot);
+    if (depth <= 0) return quiescence(board, alpha, beta, midMoveProm, depthFromRoot, personality);
 
     const scored = moves.map(m => [scoreMoveForSort(m, board, ttFromSq, ttToSq, depthFromRoot), m]);
     scored.sort((a, b) => b[0] - a[0]);
@@ -773,14 +894,14 @@ function negamax(board, depth, alpha, beta, tt, depthFromRoot, midMoveProm) {
         let score;
         if (i === 0) {
             // First move: full window search
-            score = negamax(board, depth - 1, beta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm).neg();
+            score = negamax(board, depth - 1, beta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm, personality).neg();
         } else {
             // PVS: zero-window search first
             const zwBeta = alpha.add(new Fraction(1n, 100n));
-            score = negamax(board, depth - 1, zwBeta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm).neg();
+            score = negamax(board, depth - 1, zwBeta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm, personality).neg();
             // If it beat alpha and is within the full window, re-search with full window
             if (score.gt(alpha) && score.lt(beta)) {
-                score = negamax(board, depth - 1, beta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm).neg();
+                score = negamax(board, depth - 1, beta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm, personality).neg();
             }
         }
 
@@ -810,7 +931,7 @@ function negamax(board, depth, alpha, beta, tt, depthFromRoot, midMoveProm) {
     return best;
 }
 
-function searchBestMove(board, depthLimit, timeLimitMs, midMoveProm) {
+function searchBestMove(board, depthLimit, timeLimitMs, midMoveProm, personality = 'passive') {
     searchStartTime = Date.now();
     searchTimeLimit = timeLimitMs;
     searchTimeout   = false;
@@ -829,7 +950,7 @@ function searchBestMove(board, depthLimit, timeLimitMs, midMoveProm) {
 
     if (timeLimitMs <= 0) {
         // Fixed depth search
-        negamax(board, maxDepth, Fraction.NEG_INF, Fraction.INF, tt, 0, midMoveProm);
+        negamax(board, maxDepth, Fraction.NEG_INF, Fraction.INF, tt, 0, midMoveProm, personality);
         const ttEntry = tt.probe(boardKey(board));
         if (ttEntry) {
             for (const m of rootMoves) {
@@ -1013,16 +1134,22 @@ self.onmessage = function (e) {
     }
 };
 
+let currentWorkerVariant = 'rational';
+
 function handleMessage(type, params) {
     if (type === 'initialize') {
         const variant = params.variant || 'rational';
+        currentWorkerVariant = variant;
         const fen = buildVariantFen(variant);
         return { fen };
     }
 
+    const activeVariant = params.variant || currentWorkerVariant || 'rational';
+
     if (type === 'moves') {
         const { fen, mid_move_promotion = false } = params;
         const board = new Board();
+        board.variant = activeVariant;
         board.midMovePromotion = mid_move_promotion;
         board.loadPosition(fen);
         const moves = generateLegalMoves(board, mid_move_promotion);
@@ -1044,6 +1171,7 @@ function handleMessage(type, params) {
     if (type === 'move') {
         const { fen, move: movePath, mid_move_promotion = false } = params;
         const board = new Board();
+        board.variant = activeVariant;
         board.midMovePromotion = mid_move_promotion;
         board.loadPosition(fen);
         const moves = generateLegalMoves(board, mid_move_promotion);
@@ -1067,8 +1195,9 @@ function handleMessage(type, params) {
     }
 
     if (type === 'ai_move') {
-        const { fen, depth = 0, time_ms = 0, mid_move_promotion = false } = params;
+        const { fen, depth = 0, time_ms = 0, mid_move_promotion = false, personality = 'passive' } = params;
         const board = new Board();
+        board.variant = activeVariant;
         board.midMovePromotion = mid_move_promotion;
         board.loadPosition(fen);
 
@@ -1081,7 +1210,7 @@ function handleMessage(type, params) {
             return { bestmove: cached.bestmove, output: `Loaded best move from memory (depth ${cached.depth})`, from_cache: true };
         }
 
-        const { bestMove, output } = searchBestMove(board, targetDepth, actualTimeMs, mid_move_promotion);
+        const { bestMove, output } = searchBestMove(board, targetDepth, actualTimeMs, mid_move_promotion, personality);
         if (!bestMove) {
             const gameOver = parseGameOverInfo(board);
             if (gameOver) return { bestmove: null, ...gameOver, output: 'No legal moves available.', from_cache: false };
@@ -1094,8 +1223,9 @@ function handleMessage(type, params) {
     }
 
     if (type === 'best_move') {
-        const { fen, depth = 15, mid_move_promotion = false } = params;
+        const { fen, depth = 15, mid_move_promotion = false, personality = 'passive' } = params;
         const board = new Board();
+        board.variant = activeVariant;
         board.midMovePromotion = mid_move_promotion;
         board.loadPosition(fen);
 
@@ -1105,7 +1235,7 @@ function handleMessage(type, params) {
             return { bestmove: cached.bestmove, output: `Loaded best move from memory (depth ${cached.depth})`, from_cache: true, cached_depth: cached.depth };
         }
 
-        const { bestMove, output } = searchBestMove(board, targetDepth, 0, mid_move_promotion);
+        const { bestMove, output } = searchBestMove(board, targetDepth, 0, mid_move_promotion, personality);
         if (!bestMove) return { bestmove: null, output: 'No legal moves.', from_cache: false };
 
         const bestmove = moveToApiPath(bestMove);
