@@ -673,6 +673,10 @@ function setEvalBarDisplay(evalFromRed) {
         pct = Math.min(95, Math.max(5, pct));
     }
     elEvalBarFill.style.height = `${pct}%`;
+    // Also set horizontal fill variable for mobile layout
+    if (elEvalBarWrapper) {
+        elEvalBarWrapper.style.setProperty('--eval-fill-h', `${pct}%`);
+    }
 
     // Track label at the fill boundary (clamp to 8–92% so label stays visible)
     const labelPct = Math.min(92, Math.max(8, pct));
@@ -1173,7 +1177,7 @@ async function startGame() {
     if (elShowBestMove) showBestMove = elShowBestMove.checked;
     if (elEvalBarContainer) elEvalBarContainer.style.display = showEvalBar ? '' : 'none';
     if (!showEvalBar) {
-        if (elEvalBarFill) elEvalBarFill.style.height = '50%';
+        if (elEvalBarFill) { elEvalBarFill.style.height = '50%'; if (elEvalBarWrapper) elEvalBarWrapper.style.setProperty('--eval-fill-h','50%'); }
         if (elEvalBarLabel) elEvalBarLabel.innerText = 'EVEN';
     }
 
@@ -1308,7 +1312,7 @@ if (elShowEvalBar) {
         if (showEvalBar && currentFen) requestEvalBar();
         else if (!showEvalBar) {
             // Reset bar to neutral when hidden/turned off
-            if (elEvalBarFill) elEvalBarFill.style.height = '50%';
+            if (elEvalBarFill) { elEvalBarFill.style.height = '50%'; if (elEvalBarWrapper) elEvalBarWrapper.style.setProperty('--eval-fill-h','50%'); }
             if (elEvalBarLabel) elEvalBarLabel.innerText = 'EVEN';
         }
     });

@@ -42,6 +42,11 @@
     user-select: none;
 }
 
+html {
+    max-width: 100vw;
+    overflow-x: hidden;
+}
+
 body {
     background-color: var(--bg-dark);
     color: var(--text-main);
@@ -1371,6 +1376,9 @@ select:focus, input:focus {
     .app-layout {
         padding: 8px 10px;
         gap: 8px;
+        width: 100%;
+        max-width: 100vw;
+        overflow-x: hidden;
     }
 
     .top-navbar {
@@ -1378,6 +1386,7 @@ select:focus, input:focus {
         padding: 8px 14px;
         flex-wrap: wrap;
         gap: 8px;
+        width: 100%;
     }
 
     .navbar-center {
@@ -1391,28 +1400,39 @@ select:focus, input:focus {
         grid-template-rows: auto auto auto;
         gap: 10px;
         min-height: auto;
+        width: 100%;
     }
 
     .board-stage {
         order: 1;
+        width: 100%;
     }
 
     .left-sidebar {
         order: 2;
+        width: 100%;
     }
 
     .right-sidebar {
         order: 3;
         max-height: 300px;
+        width: 100%;
+    }
+
+    /* Board constrained to viewport at this size */
+    .board-with-eval {
+        gap: 10px;
+        width: 100%;
+        justify-content: center;
     }
 
     .board-wrapper {
-        width: 420px;
-        height: 420px;
+        width: min(420px, calc(100vw - 80px));
+        height: min(420px, calc(100vw - 80px));
     }
 
     .eval-bar-wrapper {
-        height: 420px;
+        height: min(420px, calc(100vw - 80px));
     }
 
     /* Horizontal player layout on tablet */
@@ -1463,12 +1483,16 @@ select:focus, input:focus {
     .app-layout {
         padding: 6px 8px;
         gap: 6px;
+        width: 100%;
+        max-width: 100vw;
+        overflow-x: hidden;
     }
 
     /* Compact navbar */
     .top-navbar {
         padding: 8px 10px;
         border-radius: 12px;
+        width: 100%;
     }
 
     .brand-logo {
@@ -1485,11 +1509,11 @@ select:focus, input:focus {
     }
 
     .navbar-center {
-        display: none; /* hide variant badge on small phones — shown in board area */
+        display: none;
     }
 
     .mode-tabs {
-        display: none; /* mode is set via settings on mobile */
+        display: none;
     }
 
     .nav-icon-btn {
@@ -1497,51 +1521,98 @@ select:focus, input:focus {
         height: 32px;
     }
 
-    /* Board fills the screen width */
+    /* Board stage: full-width column, eval bar goes BELOW the board */
+    .board-stage {
+        width: 100%;
+        align-items: center;
+    }
+
     .board-with-eval {
+        flex-direction: column;
+        align-items: center;
         gap: 8px;
         width: 100%;
-        justify-content: center;
+    }
+
+    /* Eval bar becomes horizontal under the board */
+    .eval-bar-container {
+        flex-direction: row !important;
+        align-items: center;
+        gap: 6px;
+        width: calc(100vw - 32px);
+        max-width: 380px;
+    }
+
+    .eval-bar-container.flipped {
+        flex-direction: row-reverse !important;
+    }
+
+    .eval-bar-wrapper {
+        width: calc(100vw - 80px) !important;
+        max-width: 340px;
+        height: 16px !important;
+        border-radius: 8px !important;
+        transform: none !important;
+    }
+
+    .eval-bar-container.flipped .eval-bar-wrapper {
+        transform: rotate(180deg) !important;
+    }
+
+    /* Horizontal bar: fill from left for RED */
+    .eval-bar-fill {
+        width: var(--eval-fill-h, 50%) !important;
+        height: 100% !important;
+        bottom: auto !important;
+        top: 0 !important;
+        left: 0 !important;
+        background: linear-gradient(to right, #ff3b5c 0%, #ff6b85 100%) !important;
+        border-radius: 8px 0 0 8px !important;
+        box-shadow: none !important;
+        transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+
+    .eval-bar-label {
+        position: static !important;
+        transform: none !important;
+        font-size: 0.6rem !important;
+        white-space: nowrap;
+        color: var(--text-muted);
+        flex-shrink: 0;
+    }
+
+    .eval-bar-wrapper::after {
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        right: auto;
+        width: 2px;
+        height: 100%;
+    }
+
+    .eval-side-label {
+        font-size: 0.55rem;
+        flex-shrink: 0;
     }
 
     .game-board-container {
         padding: 6px;
         border-radius: 14px;
+        width: calc(100vw - 32px);
+        max-width: 380px;
     }
 
     .board-wrapper {
-        width: calc(100vw - 80px);
-        height: calc(100vw - 80px);
-        max-width: 380px;
-        max-height: 380px;
+        width: calc(100vw - 52px);
+        height: calc(100vw - 52px);
+        max-width: 368px;
+        max-height: 368px;
     }
 
-    /* Eval bar thinner on mobile */
-    .eval-bar-wrapper {
-        width: 18px;
-        height: calc(100vw - 80px);
-        max-height: 380px;
-        border-radius: 9px;
-    }
-
-    .eval-bar-fill {
-        border-radius: 0 0 8px 8px;
-    }
-
-    .eval-bar-label {
-        font-size: 0.45rem;
-    }
-
-    .eval-side-label {
-        font-size: 0.5rem;
-    }
-
-    /* Square operator smaller */
     .square-operator {
         font-size: 0.7rem;
     }
 
-    /* Chip text smaller */
     .chip-val {
         font-size: 0.62rem;
     }
@@ -1551,17 +1622,18 @@ select:focus, input:focus {
         top: -6px;
     }
 
-    /* Math tooltip smaller */
     .math-tooltip {
         font-size: 0.7rem;
         padding: 6px 10px;
+        max-width: calc(100vw - 32px);
     }
 
-    /* Left sidebar — compact vertical layout */
+    /* Left sidebar — full-width vertical */
     .left-sidebar {
         flex-direction: column;
         padding: 10px;
         gap: 8px;
+        width: 100%;
     }
 
     .turn-status-card {
@@ -1572,6 +1644,7 @@ select:focus, input:focus {
 
     .player-card {
         padding: 10px 12px;
+        width: 100%;
     }
 
     .card-avatar {
@@ -1600,22 +1673,29 @@ select:focus, input:focus {
         flex-direction: column;
         gap: 6px;
         margin-top: 0;
+        width: 100%;
     }
 
     .btn {
         padding: 10px 14px;
         font-size: 0.82rem;
+        width: 100%;
     }
 
-    /* Right sidebar compact */
+    .action-grid-2 .btn {
+        width: 100%;
+    }
+
+    /* Right sidebar full-width compact */
     .right-sidebar {
         padding: 10px;
         gap: 8px;
         max-height: 250px;
+        width: 100%;
     }
 
     .console-drawer {
-        display: none; /* hide engine console on mobile to save space */
+        display: none;
     }
 
     .history-list {
@@ -1627,9 +1707,10 @@ select:focus, input:focus {
         font-size: 0.72rem;
     }
 
-    /* Modal adjustments */
+    /* Modals full-width */
     .modal-content {
-        width: 95%;
+        width: 95vw;
+        max-width: 95vw !important;
         padding: 16px;
     }
 
@@ -1637,9 +1718,9 @@ select:focus, input:focus {
         max-height: 70vh;
     }
 
-    /* Welcome modal */
     .welcome-modal-content {
         max-width: 95vw !important;
+        width: 95vw !important;
         padding: 14px 16px !important;
     }
 }
@@ -1647,16 +1728,26 @@ select:focus, input:focus {
 /* --- Small Phone (≤400px) --- */
 @media (max-width: 400px) {
     .board-wrapper {
-        width: calc(100vw - 70px);
-        height: calc(100vw - 70px);
+        width: calc(100vw - 44px);
+        height: calc(100vw - 44px);
         max-width: 320px;
         max-height: 320px;
     }
 
+    .game-board-container {
+        width: calc(100vw - 20px);
+        max-width: 340px;
+    }
+
     .eval-bar-wrapper {
-        width: 14px;
-        height: calc(100vw - 70px);
-        max-height: 320px;
+        width: calc(100vw - 80px) !important;
+        max-width: 300px;
+        height: 14px !important;
+    }
+
+    .eval-bar-container {
+        width: calc(100vw - 20px);
+        max-width: 340px;
     }
 
     .chip-val {
