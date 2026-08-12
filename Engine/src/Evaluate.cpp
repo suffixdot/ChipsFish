@@ -2,7 +2,7 @@
 
 namespace Evaluate {
 
-Fraction EvaluateBoard(const Board& board) {
+Fraction EvaluateBoard(const Board& board, const std::string& variant) {
     Fraction red_eval(0);
     Fraction blue_eval(0);
 
@@ -10,6 +10,8 @@ Fraction EvaluateBoard(const Board& board) {
     const Fraction ADVANCEMENT_BONUS_STEP(1, 10);
     const Fraction CENTER_BONUS(1, 20);
     const Fraction OPERATOR_MUL_DIV_BONUS(1, 15);
+
+    bool is_thermo = (variant == "thermo");
 
     for (int sq = 0; sq < 64; ++sq) {
         const Piece& p = board.GetPiece(sq);
@@ -51,10 +53,19 @@ Fraction EvaluateBoard(const Board& board) {
     red_eval = red_eval + board.GetRedScore();
     blue_eval = blue_eval + board.GetBlueScore();
 
-    if (board.GetSideToMove() == Color::RED) {
-        return red_eval - blue_eval;
+    if (is_thermo) {
+        // Thermo Sci-Dama: lower score wins
+        if (board.GetSideToMove() == Color::RED) {
+            return blue_eval - red_eval;
+        } else {
+            return red_eval - blue_eval;
+        }
     } else {
-        return blue_eval - red_eval;
+        if (board.GetSideToMove() == Color::RED) {
+            return red_eval - blue_eval;
+        } else {
+            return blue_eval - red_eval;
+        }
     }
 }
 

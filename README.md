@@ -2,7 +2,7 @@
 
 > **The #1 Damath Engine & Interactive Web Suite**
 
-ChipsFish is the first high-performance C++ engine and web interface designed specifically for official DepEd Damath variants (Counting, Whole Number, Fraction, Integer, Rational, Radical, and Polynomial).
+ChipsFish is the first high-performance C++ engine and web interface designed specifically for official DepEd Damath variants (Counting, Whole Number, Fraction, Integer, Rational, Radical, Polynomial, and Thermo Sci Dama).
 
 ---
 

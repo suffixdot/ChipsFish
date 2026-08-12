@@ -189,6 +189,7 @@ class Board {
         this.blueScore = Fraction.ZERO;
         this.history = [];
         this.moveHistory = [];
+        this.zobristHash = 0n;
     }
 
     loadPosition(fen) {
@@ -228,6 +229,7 @@ class Board {
         if (fields.length > 1) this.sideToMove = (fields[1] === 'b' || fields[1] === 'B') ? Color.BLUE : Color.RED;
         if (fields.length > 2) this.redScore  = Fraction.parse(fields[2]);
         if (fields.length > 3) this.blueScore = Fraction.parse(fields[3]);
+        this.zobristHash = computeInitialZobrist(this);
     }
 
     getFen() {
@@ -260,21 +262,32 @@ class Board {
             redScore: this.redScore,
             blueScore: this.blueScore,
             posKey: this.getFen(),
+            zobristHash: this.zobristHash,
             thermoScores: JSON.parse(JSON.stringify(this.thermoScores))
         });
         this.moveHistory.push(m);
 
         let p = { ...this.board[m.from], value: this.board[m.from].value };
+        
+        // Incremental Zobrist Hash update
+        this.zobristHash ^= ZOBRIST_PIECES[m.from][p.color][p.isKing ? 1 : 0];
+
         this.board[m.from] = { color: Color.NONE, value: Fraction.ZERO, isKing: false };
 
         // Remove captured pieces
         for (let i = 0; i < m.capturedSquares.length; i++) {
-            this.board[m.capturedSquares[i]] = { color: Color.NONE, value: Fraction.ZERO, isKing: false };
+            const cSq = m.capturedSquares[i];
+            const cP = this.board[cSq];
+            if (cP.color !== Color.NONE) {
+                this.zobristHash ^= ZOBRIST_PIECES[cSq][cP.color][cP.isKing ? 1 : 0];
+            }
+            this.board[cSq] = { color: Color.NONE, value: Fraction.ZERO, isKing: false };
         }
 
         const dest = m.steps.length > 0 ? m.steps[m.steps.length - 1] : m.from;
         if (m.promoted) p = { ...p, isKing: true };
         this.board[dest] = p;
+        this.zobristHash ^= ZOBRIST_PIECES[dest][p.color][p.isKing ? 1 : 0];
 
         if (this.sideToMove === Color.RED) {
             this.redScore = this.redScore.add(m.scoreChange);
@@ -296,6 +309,7 @@ class Board {
             }
         }
         this.sideToMove = flipColor(this.sideToMove);
+        this.zobristHash ^= ZOBRIST_SIDE;
     }
 
     undoMove() {
@@ -317,6 +331,7 @@ class Board {
         this.sideToMove = prev.sideToMove;
         this.redScore   = prev.redScore;
         this.blueScore  = prev.blueScore;
+        this.zobristHash = prev.zobristHash;
         if (prev.thermoScores) {
             this.thermoScores = prev.thermoScores;
         }
@@ -878,15 +893,55 @@ function getTerminalScore(board, depthFromRoot = 0) {
 // SEARCH  (Negamax + Alpha-Beta + Quiescence + Killer Moves + TT + IDS)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ZOBRIST HASHING ENGINE (64-bit BigInt incremental key generator)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function pseudoRandom64(seed) {
+    let s = BigInt(seed);
+    return function() {
+        s = (s * 6364136223846793005n + 1442695040888963407n) & 0xFFFFFFFFFFFFFFFFn;
+        return s;
+    };
+}
+
+const rng64 = pseudoRandom64(0x123456789ABCDEF0n);
+const ZOBRIST_PIECES = Array.from({ length: 64 }, () => ({
+    1: [rng64(), rng64()], // Red: [normal, king]
+    2: [rng64(), rng64()]  // Blue: [normal, king]
+}));
+const ZOBRIST_SIDE = rng64();
+
+function computeInitialZobrist(board) {
+    let h = 0n;
+    for (let sq = 0; sq < 64; sq++) {
+        const p = board.board[sq];
+        if (p.color !== Color.NONE) {
+            h ^= ZOBRIST_PIECES[sq][p.color][p.isKing ? 1 : 0];
+        }
+    }
+    if (board.sideToMove === Color.BLUE) {
+        h ^= ZOBRIST_SIDE;
+    }
+    return h;
+}
+
 const MAX_DEPTH = 64;
-const TT_SIZE   = 1 << 20;  // ~1M entries
+const MAX_TT_CAPACITY = 250000;
 
 class TranspositionTable {
-    constructor() { this.table = new Map(); }
+    constructor(maxSize = MAX_TT_CAPACITY) {
+        this.table = new Map();
+        this.maxSize = maxSize;
+    }
     probe(key) { return this.table.get(key); }
     store(key, depth, flag, score, fromSq, toSq) {
         const existing = this.table.get(key);
         if (existing && existing.depth > depth) return;
+        if (this.table.size >= this.maxSize && !existing) {
+            const firstKey = this.table.keys().next().value;
+            this.table.delete(firstKey);
+        }
         this.table.set(key, { depth, flag, score, fromSq, toSq });
     }
     clear() { this.table.clear(); }
@@ -894,10 +949,10 @@ class TranspositionTable {
 
 const TT_EXACT = 0, TT_LOWERBOUND = 1, TT_UPPERBOUND = 2;
 
-// Simple Zobrist-like hash using board FEN strings as keys (accurate but slower)
-// For speed we use a rolling hash approach
 function boardKey(board) {
-    // Use the FEN as the key — accurate, avoids implementing Zobrist in JS
+    if (board.zobristHash !== undefined && board.zobristHash !== null) {
+        return board.zobristHash.toString(36);
+    }
     return board.getFen();
 }
 
@@ -944,9 +999,34 @@ function quiescence(board, alpha, beta, midMoveProm, depthFromRoot = 0, personal
 
     const moves = generateLegalMoves(board, midMoveProm);
     if (moves.length === 0) return getTerminalScore(board, depthFromRoot);
-    if (!moves[0].isCapture) return evaluateBoard(board, personality);
 
-    // THERMO SCI DAMA: lower score wins — prefer captures that yield less score.
+    const isCapture = moves[0].isCapture;
+
+    // Quiet position (no mandatory captures for current side):
+    // Perform stand-pat evaluation with beta-cutoff & alpha update
+    if (!isCapture) {
+        const standPat = evaluateBoard(board, personality);
+        if (standPat.gte(beta)) return beta;
+        if (standPat.gt(alpha)) alpha = standPat;
+
+        // Search promotion moves in quiet positions to verify position stability
+        const promoMoves = moves.filter(m => m.promoted);
+        if (promoMoves.length === 0 || depthFromRoot >= MAX_DEPTH - 2) {
+            return alpha;
+        }
+        for (const m of promoMoves) {
+            board.makeMove(m);
+            const score = quiescence(board, beta.neg(), alpha.neg(), midMoveProm, depthFromRoot + 1, personality).neg();
+            board.undoMove();
+            if (searchTimeout) return Fraction.ZERO;
+            if (score.gte(beta)) return beta;
+            if (score.gt(alpha)) alpha = score;
+        }
+        return alpha;
+    }
+
+    // Forcing capture position: Damath requires capturing.
+    // Order capture moves by score yield (thermo: lower score first; others: higher score first)
     if (board.variant === 'thermo') {
         moves.sort((a, b) => a.scoreChange.toFloat() - b.scoreChange.toFloat());
     } else {
@@ -1053,6 +1133,33 @@ function negamax(board, depth, alpha, beta, tt, depthFromRoot, midMoveProm, pers
 
     if (depth <= 0) return quiescence(board, alpha, beta, midMoveProm, depthFromRoot, personality);
 
+    // ── Damath Tactical Search Extensions ──────────────────────────────────
+    // Extend depth when in forcing or critical tactical situations:
+    //   1. Mandatory capture sequence (position is volatile)
+    //   2. Single forced reply (only 1 legal response)
+    let extension = 0;
+    const isForcingCapture = moves.length > 0 && moves[0].isCapture;
+    const isForcedSingleReply = moves.length === 1;
+
+    if (depthFromRoot < MAX_DEPTH - 8) {
+        if (isForcedSingleReply || isForcingCapture) {
+            extension = 1;
+        }
+    }
+
+    // Null Move Pruning (NMP) for quiet non-mandatory capture nodes
+    if (depth >= 3 && depthFromRoot > 0 && !isForcingCapture) {
+        board.sideToMove = flipColor(board.sideToMove);
+        board.zobristHash ^= ZOBRIST_SIDE;
+        const R = 2;
+        const nullScore = negamax(board, depth - 1 - R, beta.neg(), beta.neg().add(new Fraction(1n, 100n)), tt, depthFromRoot + 1, midMoveProm, personality).neg();
+        board.sideToMove = flipColor(board.sideToMove);
+        board.zobristHash ^= ZOBRIST_SIDE;
+        if (nullScore.gte(beta)) {
+            return beta;
+        }
+    }
+
     const scored = moves.map(m => [scoreMoveForSort(m, board, ttFromSq, ttToSq, depthFromRoot), m]);
     scored.sort((a, b) => b[0] - a[0]);
 
@@ -1064,17 +1171,25 @@ function negamax(board, depth, alpha, beta, tt, depthFromRoot, midMoveProm, pers
         const m = scored[i][1];
         board.makeMove(m);
 
+        // Individual move extension (e.g. piece promotion)
+        let moveExtension = extension;
+        if (m.promoted && depthFromRoot < MAX_DEPTH - 8) {
+            moveExtension = Math.max(moveExtension, 1);
+        }
+
+        const nextDepth = depth - 1 + moveExtension;
+
         let score;
         if (i === 0) {
             // First move: full window search
-            score = negamax(board, depth - 1, beta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm, personality).neg();
+            score = negamax(board, nextDepth, beta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm, personality).neg();
         } else {
             // PVS: zero-window search first
             const zwBeta = alpha.add(new Fraction(1n, 100n));
-            score = negamax(board, depth - 1, zwBeta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm, personality).neg();
+            score = negamax(board, nextDepth, zwBeta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm, personality).neg();
             // If it beat alpha and is within the full window, re-search with full window
             if (score.gt(alpha) && score.lt(beta)) {
-                score = negamax(board, depth - 1, beta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm, personality).neg();
+                score = negamax(board, nextDepth, beta.neg(), alpha.neg(), tt, depthFromRoot + 1, midMoveProm, personality).neg();
             }
         }
 
@@ -1104,6 +1219,8 @@ function negamax(board, depth, alpha, beta, tt, depthFromRoot, midMoveProm, pers
     return best;
 }
 
+const workerGlobalTT = new TranspositionTable();
+
 function searchBestMove(board, depthLimit, timeLimitMs, midMoveProm, personality = 'passive') {
     searchStartTime = Date.now();
     searchTimeLimit = timeLimitMs;
@@ -1113,7 +1230,7 @@ function searchBestMove(board, depthLimit, timeLimitMs, midMoveProm, personality
     // Reset history table for new search
     for (let f = 0; f < 64; f++) historyTable[f].fill(0);
 
-    const tt = new TranspositionTable();
+    const tt = workerGlobalTT;
     const rootMoves = generateLegalMoves(board, midMoveProm);
     if (rootMoves.length === 0) return { bestMove: null, output: 'No legal moves.', depth: 0 };
 
@@ -1121,9 +1238,30 @@ function searchBestMove(board, depthLimit, timeLimitMs, midMoveProm, personality
     const outputLines = [];
     const maxDepth = depthLimit > 0 ? depthLimit : 64;
 
-    if (timeLimitMs <= 0) {
-        // Fixed depth search
-        negamax(board, maxDepth, Fraction.NEG_INF, Fraction.INF, tt, 0, midMoveProm, personality);
+    // Iterative Deepening with Aspiration Windows (used for BOTH time-limited and fixed-depth modes)
+    // Running shallow depths first warms up TT & History tables for massive move ordering efficiency.
+    let lastScore = Fraction.ZERO;
+    for (let d = 1; d <= maxDepth; d++) {
+        let alpha = Fraction.NEG_INF;
+        let beta  = Fraction.INF;
+
+        if (d >= 4) {
+            // Narrow aspiration window around last iteration's score
+            const delta = new Fraction(1n, 2n);
+            alpha = lastScore.sub(delta);
+            beta  = lastScore.add(delta);
+        }
+
+        let score = negamax(board, d, alpha, beta, tt, 0, midMoveProm, personality);
+
+        if (!searchTimeout && (score.lte(alpha) || score.gte(beta))) {
+            // Aspiration window failed — re-search with full window
+            score = negamax(board, d, Fraction.NEG_INF, Fraction.INF, tt, 0, midMoveProm, personality);
+        }
+
+        if (searchTimeout) break;
+        lastScore = score;
+
         const ttEntry = tt.probe(boardKey(board));
         if (ttEntry) {
             for (const m of rootMoves) {
@@ -1132,41 +1270,10 @@ function searchBestMove(board, depthLimit, timeLimitMs, midMoveProm, personality
             }
         }
         const elapsed = Date.now() - searchStartTime;
-        outputLines.push(`info depth ${maxDepth} nodes ${searchNodes} time ${elapsed}`);
-    } else {
-        // Iterative deepening with Aspiration Windows
-        let lastScore = Fraction.ZERO;
-        for (let d = 1; d <= maxDepth; d++) {
-            let alpha = Fraction.NEG_INF;
-            let beta  = Fraction.INF;
+        outputLines.push(`info depth ${d} nodes ${searchNodes} time ${elapsed}`);
 
-            if (d >= 4) {
-                // Narrow aspiration window around last iteration's score
-                const delta = new Fraction(1n, 2n);
-                alpha = lastScore.sub(delta);
-                beta  = lastScore.add(delta);
-            }
-
-            let score = negamax(board, d, alpha, beta, tt, 0, midMoveProm, personality);
-
-            if (!searchTimeout && (score.lte(alpha) || score.gte(beta))) {
-                // Aspiration window failed — re-search with full window
-                score = negamax(board, d, Fraction.NEG_INF, Fraction.INF, tt, 0, midMoveProm, personality);
-            }
-
-            if (searchTimeout) break;
-            lastScore = score;
-
-            const ttEntry = tt.probe(boardKey(board));
-            if (ttEntry) {
-                for (const m of rootMoves) {
-                    const dest = m.steps.length > 0 ? m.steps[m.steps.length - 1] : m.from;
-                    if (m.from === ttEntry.fromSq && dest === ttEntry.toSq) { bestMove = m; break; }
-                }
-            }
-            const elapsed = Date.now() - searchStartTime;
-            outputLines.push(`info depth ${d} nodes ${searchNodes} time ${elapsed}`);
-        }
+        // Stop if fixed-depth mode reached maxDepth
+        if (timeLimitMs <= 0 && d >= maxDepth) break;
     }
 
     // ── Aggressive post-processing ────────────────────────────────────────────
@@ -1274,11 +1381,6 @@ function bookSave(fen, bestmove, depth, variant = 'rational', personality = 'pas
     openingBook[key] = { bestmove, depth, timestamp: Date.now() };
     saveBook();
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MOVE FORMAT HELPERS  (convert between engine Move objects and API format)
-// ─────────────────────────────────────────────────────────────────────────────
-
 function moveToApiPath(m) {
     // Returns [[col,row], ...] — from square first, then each step
     const path = [[sqCol(m.from), sqRow(m.from)]];
@@ -1328,15 +1430,25 @@ function parseGameOverInfo(board) {
         reason = `${side} has no legal moves`;
     }
 
-    // THERMO SCI DAMA: lower score wins.
-    const thermoVariant = board.variant === 'thermo';
-    if (thermoVariant ? red.lt(blue) : red.gt(blue)) {
-        winner = 'RED';
-    } else if (thermoVariant ? blue.lt(red) : blue.gt(red)) {
-        winner = 'BLUE';
-    } else {
-        winner = 'Draw';
+    // Rule-based draws (repetition / no-capture limit) are unconditional:
+    // scores do NOT determine the outcome. Only compare scores when the
+    // game ended because a side ran out of pieces or has no legal moves.
+    const isRuleDraw = board.isDrawByNoCaptureLimit() ||
+                       board.isDrawByOnePieceRepetition() ||
+                       board.isDrawByRepetition();
+
+    if (!isRuleDraw) {
+        // THERMO SCI DAMA: lower score wins.
+        const thermoVariant = board.variant === 'thermo';
+        if (thermoVariant ? red.lt(blue) : red.gt(blue)) {
+            winner = 'RED';
+        } else if (thermoVariant ? blue.lt(red) : blue.gt(red)) {
+            winner = 'BLUE';
+        } else {
+            winner = 'Draw';
+        }
     }
+    // else: winner stays 'Draw'
 
     return {
         is_game_over: true,
@@ -1373,16 +1485,38 @@ self.onmessage = function (e) {
     }
 };
 
+function formatMoveForApi(m) {
+    const fromCoord = [sqCol(m.from), sqRow(m.from)];
+    const stepsCoord = m.steps.map(sq => [sqCol(sq), sqRow(sq)]);
+    const path = [fromCoord, ...stepsCoord];
+    const scoreStr = m.isCapture ? m.scoreChange.toString() : '';
+    return {
+        from: m.from,
+        from_coord: fromCoord,
+        steps: m.steps,
+        steps_coords: stepsCoord,
+        path: path,
+        is_capture: m.isCapture,
+        score_change: scoreStr,
+        captured_squares: m.capturedSquares,
+        promoted: m.promoted,
+        raw: `(${fromCoord[0]},${fromCoord[1]}) -> ${stepsCoord.map(s => `(${s[0]},${s[1]})`).join(' -> ')}`
+    };
+}
+
 let currentWorkerVariant = 'rational';
 
 function handleMessage(type, params) {
     if (type === 'initialize') {
         const variant = params.variant || 'rational';
         currentWorkerVariant = variant;
+        workerGlobalTT.clear();
         const fen = buildVariantFen(variant);
         persistentBoard.variant = variant;
         persistentBoard.loadPosition(fen);
-        return { fen };
+        const moves = generateLegalMoves(persistentBoard, false);
+        const apiMoves = moves.map(m => formatMoveForApi(m));
+        return { fen, moves: apiMoves, legal_moves: apiMoves, output: '' };
     }
 
     const activeVariant = params.variant || currentWorkerVariant || 'rational';
@@ -1394,24 +1528,12 @@ function handleMessage(type, params) {
         board.midMovePromotion = mid_move_promotion;
         board.loadPosition(fen);
         const moves = generateLegalMoves(board, mid_move_promotion);
-        const apiMoves = moves.map(m => {
-            const fromCoord = [sqCol(m.from), sqRow(m.from)];
-            const steps = m.steps.map(sq => [sqCol(sq), sqRow(sq)]);
-            const scoreStr = m.scoreChange.toString();
-            return {
-                from: fromCoord,
-                steps,
-                is_capture: m.isCapture,
-                score_change: m.isCapture ? scoreStr : '',
-                raw: `(${fromCoord[0]},${fromCoord[1]}) -> ${steps.map(s => `(${s[0]},${s[1]})`).join(' -> ')}`
-            };
-        });
-        return { moves: apiMoves, output: '' };
+        const apiMoves = moves.map(m => formatMoveForApi(m));
+        return { moves: apiMoves, legal_moves: apiMoves, output: '' };
     }
 
     if (type === 'move') {
-        const { fen, move: movePath, mid_move_promotion = false } = params;
-        // Sync persistentBoard to current position if different
+        const { fen, move: moveData, mid_move_promotion = false } = params;
         if (persistentBoard.getFen() !== fen) {
             persistentBoard.variant = activeVariant;
             persistentBoard.loadPosition(fen);
@@ -1419,12 +1541,23 @@ function handleMessage(type, params) {
         persistentBoard.midMovePromotion = mid_move_promotion;
         const moves = generateLegalMoves(persistentBoard, mid_move_promotion);
 
-        // movePath is [[col,row], ...] with from first
+        let movePath = [];
+        if (Array.isArray(moveData)) {
+            movePath = moveData;
+        } else if (moveData && moveData.path) {
+            movePath = moveData.path;
+        } else if (moveData && moveData.from !== undefined && moveData.steps) {
+            movePath = [[sqCol(moveData.from), sqRow(moveData.from)], ...moveData.steps.map(s => [sqCol(s), sqRow(s)])];
+        }
+
         const pathSqs = movePath.map(([c, r]) => makeSquare(c, r));
         const found = findMoveByPath(moves, pathSqs);
         if (!found) return { fen: null, is_game_over: false, game_over_reason: '', winner: '', output: 'Illegal move.' };
 
         persistentBoard.makeMove(found);
+
+        const nextMoves = generateLegalMoves(persistentBoard, mid_move_promotion);
+        const apiNextMoves = nextMoves.map(m => formatMoveForApi(m));
 
         const promoted = found.promoted;
         let output = '';
@@ -1432,9 +1565,9 @@ function handleMessage(type, params) {
         if (found.isCapture) output += `Captured ${found.capturedSquares.length} piece(s). Score change: ${found.scoreChange.toString()}\n`;
 
         const gameOver = parseGameOverInfo(persistentBoard);
-        if (gameOver) return { ...gameOver, fen: persistentBoard.getFen(), output: output + gameOver.output };
+        if (gameOver) return { ...gameOver, fen: persistentBoard.getFen(), moves: [], legal_moves: [], output: output + gameOver.output };
 
-        return { fen: persistentBoard.getFen(), is_game_over: false, game_over_reason: '', winner: '', output };
+        return { fen: persistentBoard.getFen(), moves: apiNextMoves, legal_moves: apiNextMoves, is_game_over: false, game_over_reason: '', winner: '', output };
     }
 
     if (type === 'ai_move') {
@@ -1447,7 +1580,6 @@ function handleMessage(type, params) {
         const targetDepth = depth > 0 ? Math.min(15, Math.max(1, depth)) : (time_ms > 0 ? 0 : 7);
         const actualTimeMs = (depth > 0) ? 0 : (time_ms > 0 ? time_ms : 0);
 
-        // Check opening book
         const cached = bookGet(fen, targetDepth, activeVariant, personality);
         if (cached) {
             return { bestmove: cached.bestmove, output: `Loaded best move from memory (depth ${cached.depth})`, from_cache: true };
@@ -1466,24 +1598,78 @@ function handleMessage(type, params) {
     }
 
     if (type === 'best_move') {
-        const { fen, depth = 15, mid_move_promotion = false, personality = 'passive' } = params;
+        const { fen, depth = 6, time_ms = 0, mid_move_promotion = false, personality = 'passive' } = params;
         const board = new Board();
         board.variant = activeVariant;
         board.midMovePromotion = mid_move_promotion;
         board.loadPosition(fen);
 
         const targetDepth = Math.min(15, Math.max(1, depth));
+        const actualTimeMs = time_ms > 0 ? time_ms : 0;
         const cached = bookGet(fen, targetDepth, activeVariant, personality);
         if (cached) {
             return { bestmove: cached.bestmove, output: `Loaded best move from memory (depth ${cached.depth})`, from_cache: true, cached_depth: cached.depth };
         }
 
-        const { bestMove, output } = searchBestMove(board, targetDepth, 0, mid_move_promotion, personality);
+        const { bestMove, output } = searchBestMove(board, targetDepth, actualTimeMs, mid_move_promotion, personality);
         if (!bestMove) return { bestmove: null, output: 'No legal moves.', from_cache: false };
 
         const bestmove = moveToApiPath(bestMove);
         bookSave(fen, bestmove, targetDepth, activeVariant, personality);
         return { bestmove, output, from_cache: false };
+    }
+
+    if (type === 'eval') {
+        // Returns engine evaluation from RED's absolute perspective (positive = RED better).
+        const { fen, depth = 6, mid_move_promotion = false, personality = 'passive' } = params;
+        const board = new Board();
+        board.variant = activeVariant;
+        board.midMovePromotion = mid_move_promotion;
+        board.loadPosition(fen);
+
+        const tt = workerGlobalTT;
+        const rootMoves = generateLegalMoves(board, mid_move_promotion);
+        if (rootMoves.length === 0) {
+            // Game over – use final scores (Thermo: lower wins; others: higher wins)
+            const { red, blue } = board.getFinalScores();
+            if (board.variant === 'thermo') {
+                if (red.lt(blue)) return { eval: 9999, from_cache: false };
+                if (blue.lt(red)) return { eval: -9999, from_cache: false };
+                return { eval: 0, from_cache: false };
+            } else {
+                if (red.gt(blue)) return { eval: 9999, from_cache: false };
+                if (blue.gt(red)) return { eval: -9999, from_cache: false };
+                return { eval: 0, from_cache: false };
+            }
+        }
+
+        // Fast TT Probe: if position was already evaluated or searched by AI / IDS, return immediately in 0ms
+        const key = boardKey(board);
+        const ttEntry = tt.probe(key);
+        if (ttEntry) {
+            const ttScoreFloat = ttEntry.score.toFloat();
+            const evalFromRed = board.sideToMove === Color.RED ? ttScoreFloat : -ttScoreFloat;
+            return { eval: evalFromRed, from_cache: true };
+        }
+
+        // Lightweight time-capped eval search (max 150ms cap) so UI thread & player inputs are never blocked
+        searchStartTime = Date.now();
+        searchTimeLimit = 150; // Cap at 150ms max for live eval bar updates
+        searchTimeout   = false;
+        searchNodes     = 0;
+
+        const targetDepth = Math.min(6, Math.max(1, depth));
+        let lastScore = Fraction.ZERO;
+
+        for (let d = 1; d <= targetDepth; d++) {
+            const score = negamax(board, d, Fraction.NEG_INF, Fraction.INF, tt, 0, mid_move_promotion, personality);
+            if (searchTimeout) break;
+            lastScore = score;
+        }
+
+        const negamaxFloat = lastScore.toFloat();
+        const evalFromRed = board.sideToMove === Color.RED ? negamaxFloat : -negamaxFloat;
+        return { eval: evalFromRed, from_cache: false };
     }
 
     throw new Error(`Unknown message type: ${type}`);

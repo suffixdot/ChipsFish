@@ -408,6 +408,12 @@ class DamathHandler(http.server.BaseHTTPRequestHandler):
         elif path in ["/logo.png", "/gui/logo.png", "/favicon.png", "/favicon.ico"]:
             file_path = "gui/logo.png"
             content_type = "image/png"
+        elif path in ['/engine.js', '/gui/engine.js']:
+            file_path = 'gui/engine.js'
+            content_type = 'text/javascript'
+        elif path in ['/engine.worker.js', '/gui/engine.worker.js']:
+            file_path = 'gui/engine.worker.js'
+            content_type = 'text/javascript'
         else:
             self.send_error(404, f"File not found: {path}")
             return
@@ -589,8 +595,54 @@ class DamathHandler(http.server.BaseHTTPRequestHandler):
                         "from_cache": False
                     }
 
+        elif parsed_url.path == '/api/eval':
+            fen = req_data.get('fen', '')
+            depth = int(req_data.get('depth', 6))
+            depth = max(1, min(15, depth))
+            mid_move_promotion = req_data.get('mid_move_promotion', None)
+
+            if not fen:
+                response_data = {'error': 'Missing FEN'}
+                status_code = 400
+            else:
+                commands = []
+                if mid_move_promotion is not None:
+                    val_str = 'true' if mid_move_promotion else 'false'
+                    commands.append(f'setoption name MidMovePromotion value {val_str}')
+                commands.append(f'position fen {fen}')
+                commands.append(f'go depth {depth}')
+
+                stdout, stderr = run_engine_commands(commands)
+
+                # Extract score from damath_engine output line: "info depth N score <fraction_or_int> ..."
+                eval_score = 0.0
+                for line in stdout.splitlines():
+                    m = re.search(r'info\s+.*?\bscore\s+([-\d/.]+)', line)
+                    if m:
+                        score_str = m.group(1)
+                        try:
+                            if '/' in score_str:
+                                p = score_str.split('/')
+                                eval_score = float(p[0]) / float(p[1])
+                            else:
+                                eval_score = float(score_str)
+                        except Exception:
+                            pass
+
+                # Convert score to absolute RED perspective (positive = RED advantage)
+                fields = fen.split(' ')
+                side_to_move = fields[1] if len(fields) > 1 else 'r'
+                is_red_to_move = (side_to_move.lower() == 'r')
+
+                if req_data.get('variant') == 'thermo':
+                    eval_score = -eval_score if is_red_to_move else eval_score
+                else:
+                    eval_score = eval_score if is_red_to_move else -eval_score
+
+                response_data = {'eval': eval_score, 'from_cache': False, 'output': stdout}
+
         else:
-            self.send_error(404, "Endpoint not found")
+            self.send_error(404, 'Endpoint not found')
             return
 
         response_bytes = json.dumps(response_data).encode('utf-8')

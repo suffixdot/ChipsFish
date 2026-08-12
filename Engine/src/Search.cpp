@@ -138,6 +138,17 @@ namespace {
             return Quiescence(board, alpha, beta, depth_from_root);
         }
 
+        // Search Extensions for forcing/volatile tactical situations:
+        int extension = 0;
+        bool is_forcing_capture = !moves.empty() && moves[0].is_capture();
+        bool is_forced_reply = (moves.size() == 1);
+
+        if (depth_from_root < MAX_SEARCH_DEPTH - 8) {
+            if (is_forced_reply || is_forcing_capture) {
+                extension = 1;
+            }
+        }
+
         // Sort moves
         std::vector<std::pair<int, Move>> scored_moves;
         scored_moves.reserve(moves.size());
@@ -156,16 +167,22 @@ namespace {
             const Move& m = scored_moves[i].second;
             board.MakeMove(m);
 
+            int move_extension = extension;
+            if (m.promoted && depth_from_root < MAX_SEARCH_DEPTH - 8) {
+                move_extension = std::max(move_extension, 1);
+            }
+            int next_depth = depth - 1 + move_extension;
+
             Fraction score(0);
             if (i == 0) {
-                score = -Negamax(board, depth - 1, -beta, -alpha, tt, depth_from_root + 1);
+                score = -Negamax(board, next_depth, -beta, -alpha, tt, depth_from_root + 1);
             } else {
                 // Zero-window search (PVS / NegaScout)
                 Fraction zero_beta = alpha + Fraction(1, 100);
-                score = -Negamax(board, depth - 1, -zero_beta, -alpha, tt, depth_from_root + 1);
+                score = -Negamax(board, next_depth, -zero_beta, -alpha, tt, depth_from_root + 1);
                 // If zero-window search failed high and is within window, re-search with full window
                 if (score > alpha && score < beta) {
-                    score = -Negamax(board, depth - 1, -beta, -alpha, tt, depth_from_root + 1);
+                    score = -Negamax(board, next_depth, -beta, -alpha, tt, depth_from_root + 1);
                 }
             }
             board.UndoMove();

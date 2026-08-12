@@ -70,6 +70,7 @@
             '/api/move':       'move',
             '/api/ai_move':    'ai_move',
             '/api/best_move':  'best_move',
+            '/api/eval':       'eval',
         };
         return map[endpoint] || null;
     }
