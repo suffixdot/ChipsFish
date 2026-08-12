@@ -532,6 +532,19 @@ body {
     flex-shrink: 0;
 }
 
+/* Flipped Eval Bar (when board is flipped) */
+.eval-bar-container.flipped {
+    flex-direction: column-reverse;
+}
+
+.eval-bar-container.flipped .eval-bar-wrapper {
+    transform: rotate(180deg);
+}
+
+.eval-bar-container.flipped .eval-bar-label {
+    transform: translateX(-50%) rotate(90deg);
+}
+
 .eval-side-label {
     font-size: 0.6rem;
     font-weight: 800;

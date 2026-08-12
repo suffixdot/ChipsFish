@@ -805,6 +805,7 @@ function renderBoard() {
 function toggleBoardFlip() {
     isFlipped = !isFlipped;
     if (elFlipBoardCheck) elFlipBoardCheck.checked = isFlipped;
+    if (elEvalBarContainer) elEvalBarContainer.classList.toggle('flipped', isFlipped);
     playSound('click');
     logToConsole(`Board flipped (${isFlipped ? 'BLUE view' : 'RED view'})`, 'system');
     renderBoard();
@@ -1357,6 +1358,13 @@ if (elBtnApplySettings) elBtnApplySettings.addEventListener('click', () => {
 });
 
 if (elBtnFlipBoard) elBtnFlipBoard.addEventListener('click', toggleBoardFlip);
+if (elFlipBoardCheck) {
+    elFlipBoardCheck.addEventListener('change', () => {
+        isFlipped = elFlipBoardCheck.checked;
+        if (elEvalBarContainer) elEvalBarContainer.classList.toggle('flipped', isFlipped);
+        renderBoard();
+    });
+}
 
 // Welcome Modal Listeners
 function closeWelcomeModal() {
