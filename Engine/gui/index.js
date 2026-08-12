@@ -1372,6 +1372,17 @@ function closeWelcomeModal() {
     if (elWelcomeModal) elWelcomeModal.classList.remove('active');
 }
 
+// Swap tip text based on whether the user is on a mobile/touch device
+(function setWelcomeTip() {
+    const isMobile = /Mobi|Android|iPhone|iPad|iPod|Windows Phone/i.test(navigator.userAgent)
+        || (navigator.maxTouchPoints > 1 && window.innerWidth <= 768);
+    const tipEl = document.querySelector('.welcome-fullscreen-tip');
+    if (!tipEl) return;
+    if (isMobile) {
+        tipEl.innerHTML = '<span>📱</span><span><strong>Tip:</strong> Make sure to <strong>zoom out a bit</strong> so you can see better!</span>';
+    }
+})();
+
 if (elBtnCloseWelcome) elBtnCloseWelcome.addEventListener('click', closeWelcomeModal);
 if (elBtnWelcomeOk) elBtnWelcomeOk.addEventListener('click', closeWelcomeModal);
 if (elWelcomeModal) {
