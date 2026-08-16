@@ -3,7 +3,7 @@
   "buildCommand": "",
   "installCommand": "",
   "framework": null,
-  "rewrites": [
-    { "source": "/", "destination": "/gui/index.html" }
+  "redirects": [
+    { "source": "/", "destination": "/gui/" }
   ]
 }
