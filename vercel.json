@@ -1,6 +1,9 @@
 {
-  "outputDirectory": "Engine/gui",
+  "outputDirectory": "Engine",
   "buildCommand": "",
   "installCommand": "",
-  "framework": null
+  "framework": null,
+  "rewrites": [
+    { "source": "/", "destination": "/gui/index.html" }
+  ]
 }

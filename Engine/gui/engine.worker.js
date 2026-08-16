@@ -1672,5 +1672,92 @@ function handleMessage(type, params) {
         return { eval: evalFromRed, from_cache: false };
     }
 
+    if (type === 'analyze_position') {
+        const { fen, depth = 7, time_ms = 0, mid_move_promotion = false, personality = 'passive' } = params;
+        const board = new Board();
+        board.variant = activeVariant;
+        board.midMovePromotion = mid_move_promotion;
+        board.loadPosition(fen);
+
+        const targetDepth = Math.min(15, Math.max(1, depth));
+        const searchRes = searchBestMove(board, targetDepth, time_ms, mid_move_promotion, personality);
+        if (!searchRes.bestMove) {
+            return {
+                fen,
+                variant: activeVariant,
+                bestmove: null,
+                bestmove_raw: 'No legal moves',
+                eval: 0,
+                eval_str: '0.00',
+                depth: 0,
+                nodes: 0,
+                time_ms: 0,
+                nps: 0,
+                candidate_moves: []
+            };
+        }
+
+        const bestmove = moveToApiPath(searchRes.bestMove);
+        const bestFormatted = formatMoveForApi(searchRes.bestMove);
+        const candidateMoves = analyzeAllCandidateMoves(board, targetDepth, mid_move_promotion, personality);
+
+        const ttEntry = workerGlobalTT.probe(boardKey(board));
+        let evalFromRed = 0;
+        if (ttEntry) {
+            const scoreFloat = ttEntry.score.toFloat();
+            evalFromRed = board.sideToMove === Color.RED ? scoreFloat : -scoreFloat;
+        } else if (candidateMoves.length > 0) {
+            evalFromRed = candidateMoves[0].eval_from_red;
+        }
+
+        const elapsed = Math.max(1, Date.now() - searchStartTime);
+        const nps = Math.round((searchNodes / (elapsed || 1)) * 1000);
+
+        return {
+            fen,
+            variant: activeVariant,
+            side_to_move: board.sideToMove === Color.RED ? 'r' : 'b',
+            bestmove,
+            bestmove_raw: bestFormatted.raw,
+            eval: evalFromRed,
+            eval_str: evalFromRed > 0 ? `+${evalFromRed.toFixed(2)}` : evalFromRed.toFixed(2),
+            depth: targetDepth,
+            nodes: searchNodes,
+            time_ms: elapsed,
+            nps,
+            candidate_moves: candidateMoves
+        };
+    }
+
     throw new Error(`Unknown message type: ${type}`);
 }
+
+function analyzeAllCandidateMoves(board, depth, midMoveProm, personality = 'passive') {
+    const rootMoves = generateLegalMoves(board, midMoveProm);
+    if (rootMoves.length === 0) return [];
+
+    const tt = workerGlobalTT;
+    const candidates = [];
+    const searchDepth = Math.max(1, Math.min(6, depth - 1));
+
+    for (const m of rootMoves) {
+        board.makeMove(m);
+        const score = negamax(board, searchDepth, Fraction.NEG_INF, Fraction.INF, tt, 1, midMoveProm, personality).neg();
+        board.undoMove();
+
+        const scoreFloat = score.toFloat();
+        const evalFromRed = board.sideToMove === Color.RED ? scoreFloat : -scoreFloat;
+
+        const formatted = formatMoveForApi(m);
+        candidates.push({
+            ...formatted,
+            score_float: scoreFloat,
+            eval_from_red: evalFromRed,
+            eval_str: (evalFromRed > 0 ? `+${evalFromRed.toFixed(2)}` : evalFromRed.toFixed(2))
+        });
+    }
+
+    candidates.sort((a, b) => b.score_float - a.score_float);
+    return candidates;
+}
+

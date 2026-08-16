@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChipsFish — Damath Solver & Tablebase Analyzer</title>
+    <link rel="icon" type="image/png" href="logo.png">
+    <link rel="apple-touch-icon" href="logo.png">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="analyzer.css">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Top App Navigation Header -->
+        <header class="top-navbar glass">
+            <div class="brand-group">
+                <img src="logo.png" alt="ChipsFish Logo" class="brand-logo">
+                <div class="brand-text">
+                    <span class="brand-title">CHIPSFISH</span>
+                    <span class="brand-subtitle">SOLVER & TABLEBASE ANALYZER</span>
+                </div>
+            </div>
+
+            <!-- Variant Picker & Active Variant Badge -->
+            <div class="navbar-center">
+                <div class="variant-picker-nav">
+                    <label for="variant-select">Variant:</label>
+                    <select id="variant-select">
+                        <option value="integer">Integer Damath (Grade 7)</option>
+                        <option value="rational">Rational Damath (Grade 8)</option>
+                        <option value="counting">Counting Damath (Grades 1–2)</option>
+                        <option value="whole">Whole Number Damath (Grades 3–4)</option>
+                        <option value="fraction">Fraction Damath (Grades 5–6)</option>
+                        <option value="radical">Radical Damath (Grade 9)</option>
+                        <option value="polynomial">Polynomial Damath (Grade 10)</option>
+                        <option value="thermo">Thermo Sci-Dama (Grade 10)</option>
+                    </select>
+                </div>
+
+                <div class="variant-pill-badge" id="active-variant-badge">
+                    <span class="dot"></span>
+                    <span id="variant-badge-name">INTEGER DAMATH</span>
+                    <span class="grade-tag" id="variant-badge-grade">Grade 7</span>
+                </div>
+            </div>
+
+            <!-- Navbar Right Actions -->
+            <div class="navbar-actions">
+                <div class="tablebase-counter-badge" title="Total analyzed positions stored in your tablebase">
+                    <span>💾</span>
+                    <span id="tb-count-badge">0 solved</span>
+                </div>
+                <a href="../gui/" id="btn-goto-game" class="nav-icon-btn" title="Go to Interactive Game GUI" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;width:auto;font-size:0.8rem;font-weight:700;text-decoration:none;color:var(--text-muted);">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    Play
+                </a>
+                <button id="btn-audio-toggle" class="nav-icon-btn active" title="Toggle Sound FX">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Workspace Grid (Left Solver Controls | Center Stage | Right Analysis & Tablebase) -->
+        <div class="main-workspace">
+
+            <!-- Left Sidebar: Controls & Position Setup -->
+            <aside class="workspace-sidebar left-sidebar glass">
+                <!-- Turn & Status Card -->
+                <div class="turn-status-card">
+                    <div id="status-turn-pill" class="turn-pill red">
+                        <span class="pulse-dot"></span>
+                        <span id="status-turn-text">RED Turn</span>
+                    </div>
+                    <span id="engine-status-text" class="status-subtext">Solver Engine Ready</span>
+                </div>
+
+                <!-- Match Score Banner -->
+                <div class="score-banner">
+                    <div class="score-box red-side">
+                        <span class="label">RED SCORE</span>
+                        <span class="value" id="score-red">0</span>
+                    </div>
+                    <div class="score-box blue-side">
+                        <span class="label">BLUE SCORE</span>
+                        <span class="value" id="score-blue">0</span>
+                    </div>
+                </div>
+
+                <!-- Main Start Analyzing Toggle -->
+                <button id="btn-analyze-toggle" class="btn-analyze-toggle" title="Toggle continuous engine analysis (Hotkey: Spacebar)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    <span id="analyze-btn-text">Start Analyzing</span>
+                </button>
+
+                <!-- Search Depth Slider -->
+                <div class="solver-section">
+                    <div class="slider-row">
+                        <span class="section-label">Target Search Depth</span>
+                        <span id="depth-value">7</span>
+                    </div>
+                    <input type="range" id="depth-slider" min="1" max="15" value="7">
+                </div>
+
+                <!-- Action Buttons Grid -->
+                <div class="solver-section">
+                    <span class="section-label">Solver Actions</span>
+                    <div class="btn-grid-2">
+                        <button id="btn-step-best" class="btn emerald-btn" title="Execute engine best move (Hotkey: Right Arrow)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                            Step Best
+                        </button>
+                        <button id="btn-auto-solve" class="btn primary-btn" title="Continuously solve and record every move into Tablebase">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21"></polygon></svg>
+                            Auto-Solve
+                        </button>
+                    </div>
+                    <div class="btn-grid-2">
+                        <button id="btn-flip-board" class="btn secondary-btn" title="Flip Board Perspective (Hotkey: F)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 16V4M7 4L3 8M7 4L11 8M17 8V20M17 20L21 16M17 20L13 16"/></svg>
+                            Flip
+                        </button>
+                        <button id="btn-reset" class="btn danger-btn" title="Reset to official starting position">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                            Reset
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Custom FEN Setup Section -->
+                <div class="solver-section">
+                    <span class="section-label">Position FEN</span>
+                    <div class="fen-input-group">
+                        <textarea id="fen-textarea" class="fen-textarea" placeholder="Load or paste FEN string..."></textarea>
+                        <div class="btn-grid-2">
+                            <button id="btn-copy-fen" class="btn secondary-btn" title="Copy current position FEN">Copy FEN</button>
+                            <button id="btn-load-fen" class="btn secondary-btn" title="Load FEN into board">Load FEN</button>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Center Stage: Evaluation Bar & Interactive Board -->
+            <main class="board-stage">
+                <div class="board-with-eval">
+                    <!-- Live Evaluation Bar -->
+                    <div class="eval-bar-container" id="eval-bar-container">
+                        <div class="eval-side-label eval-side-blue">BLU</div>
+                        <div class="eval-bar-wrapper" id="eval-bar-wrapper" title="Engine Evaluation — RED is positive (bar rises), BLUE is negative (bar falls)">
+                            <div class="eval-bar-fill" id="eval-bar-fill" style="height: 50%;"></div>
+                            <div class="eval-bar-label" id="eval-bar-label">EVEN</div>
+                        </div>
+                        <div class="eval-side-label eval-side-red">RED</div>
+                    </div>
+
+                    <!-- 8x8 Board Container -->
+                    <div class="game-board-container">
+                        <div class="board-wrapper">
+                            <div class="board" id="board">
+                                <!-- Board tiles generated dynamically -->
+                            </div>
+                            <!-- Best Move SVG Overlay -->
+                            <svg id="best-move-overlay" class="board-arrow-overlay" xmlns="http://www.w3.org/2000/svg">
+                                <defs>
+                                    <filter id="arrow-glow" x="-20%" y="-20%" width="140%" height="140%">
+                                        <feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#10b981" flood-opacity="0.8" />
+                                    </filter>
+                                    <marker id="best-move-arrowhead" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+                                        <path d="M0,0.5 L7,3.5 L0,6.5 Z" fill="#10b981" />
+                                    </marker>
+                                </defs>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hover Math Equation Tooltip Popup -->
+                <div id="math-equation-tooltip" class="math-tooltip glass">
+                    <span class="math-tooltip-icon">🧮</span>
+                    <span class="math-tooltip-text" id="math-tooltip-text">Hover over capture to preview math operation</span>
+                </div>
+            </main>
+
+            <!-- Right Sidebar: Engine Analysis & Tablebase Keepsake -->
+            <aside class="workspace-sidebar right-sidebar glass">
+                <!-- Live Engine Analysis Card -->
+                <div class="analysis-header-card">
+                    <span class="section-label">Engine Analysis</span>
+                    <div class="best-move-display-row">
+                        <div>
+                            <span style="font-size:0.68rem; color:var(--text-muted);">Best Move:</span>
+                            <div class="best-move-tag" id="best-move-tag">None</div>
+                        </div>
+                        <div style="text-align:right;">
+                            <span style="font-size:0.68rem; color:var(--text-muted);">Evaluation:</span>
+                            <div class="eval-score-tag even" id="eval-score-tag">EVEN</div>
+                        </div>
+                    </div>
+                    <div class="search-stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-label">Depth</span>
+                            <span class="stat-value" id="stat-depth">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Nodes</span>
+                            <span class="stat-value" id="stat-nodes">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">NPS</span>
+                            <span class="stat-value" id="stat-nps">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Time</span>
+                            <span class="stat-value" id="stat-time">0ms</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Multi-PV Candidate Moves List -->
+                <div class="candidate-moves-panel">
+                    <span class="section-label">Candidate Move Rankings (Multi-PV)</span>
+                    <div class="candidate-list" id="candidate-list">
+                        <div style="color:var(--text-dim); font-size:0.75rem; text-align:center; padding:10px;">Click "Start Analyzing" to compute candidate moves</div>
+                    </div>
+                </div>
+
+                <!-- Tablebase Keepsake Manager -->
+                <div class="tablebase-panel">
+                    <div class="tablebase-stats-row">
+                        <span class="section-label">Tablebase Keepsake</span>
+                        <span>Total: <strong id="tb-total-count" style="color:#ffffff;">0</strong> | Active Variant: <strong id="tb-variant-count" style="color:var(--color-emerald);">0</strong></span>
+                    </div>
+
+                    <!-- Export & Import Action Buttons -->
+                    <div class="tablebase-actions-grid">
+                        <button id="btn-export-txt" class="btn emerald-btn" title="Download all analyzed positions as a readable .txt archive">
+                            📥 Export .TXT
+                        </button>
+                        <button id="btn-export-json" class="btn secondary-btn" title="Download full JSON tablebase backup">
+                            💾 Export JSON
+                        </button>
+                        <button id="btn-import" class="btn secondary-btn" title="Import previously exported TXT or JSON tablebase">
+                            📂 Import Archive
+                        </button>
+                        <button id="btn-clear-tb" class="btn danger-btn" title="Clear tablebase cache">
+                            🗑️ Clear All
+                        </button>
+                        <input type="file" id="file-input" accept=".txt,.json" style="display:none;">
+                    </div>
+
+                    <!-- Tablebase Recent Analyzed Positions List -->
+                    <span class="section-label" style="margin-top:4px;">Recent Analyzed Positions</span>
+                    <div class="tablebase-list" id="tb-list">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+            </aside>
+
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="engine.js"></script>
+    <script src="analyzer.js"></script>
+</body>
+</html>
