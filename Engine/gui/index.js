@@ -1374,6 +1374,7 @@ if (elFlipBoardCheck) {
 function closeWelcomeModal() {
     playSound('click');
     if (elWelcomeModal) elWelcomeModal.classList.remove('active');
+    sessionStorage.setItem('cf_welcome_seen', '1');
 }
 
 // Swap tip text based on whether the user is on a mobile/touch device
@@ -1393,6 +1394,11 @@ if (elWelcomeModal) {
     elWelcomeModal.addEventListener('click', (e) => {
         if (e.target === elWelcomeModal) closeWelcomeModal();
     });
+}
+
+// Only show welcome modal the first time in this browser session
+if (elWelcomeModal && !sessionStorage.getItem('cf_welcome_seen')) {
+    elWelcomeModal.classList.add('active');
 }
 
 // Global Keyboard Shortcuts
