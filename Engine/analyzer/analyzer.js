@@ -858,7 +858,10 @@
 
         elEvalBarFill.style.height = `${pct}%`;
         const labelPct = Math.min(92, Math.max(8, pct));
-        if (elEvalBarWrapper) elEvalBarWrapper.style.setProperty('--eval-fill-pct', `${labelPct}%`);
+        if (elEvalBarWrapper) {
+            elEvalBarWrapper.style.setProperty('--eval-fill-pct', `${labelPct}%`);
+            elEvalBarWrapper.style.setProperty('--eval-fill-h', `${pct}%`);
+        }
 
         let labelStr;
         if (isMate) {
