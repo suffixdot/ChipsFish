@@ -4,6 +4,6 @@
   "installCommand": "",
   "framework": null,
   "redirects": [
-    { "source": "/", "destination": "/gui/" }
+    { "source": "/", "destination": "/play/" }
   ]
 }

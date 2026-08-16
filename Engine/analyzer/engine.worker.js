@@ -1,1 +1,1 @@
-../gui/engine.worker.js
+../play/engine.worker.js

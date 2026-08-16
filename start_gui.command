@@ -1,6 +1,6 @@
 #!/bin/bash
-# Change directory to the GUI folder
-cd "$(dirname "$0")/Engine/gui"
+# Change directory to the Play folder
+cd "$(dirname "$0")/Engine/play"
 
 echo "========================================"
 echo "        ChipsFish — JS Engine          "

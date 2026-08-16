@@ -26,7 +26,7 @@ Launch the dedicated tablebase solver to analyze positions, view candidate moves
 
 ## ✨ Key Features
 
-### 🎮 Interactive Game Suite (`Engine/gui`)
+### 🎮 Interactive Game Suite (`Engine/play`)
 - **Unbeatable Engine Logic**: Evaluates deep tactical capture sequences, king priority rules, and multi-step jump combinations.
 - **Position Memory & Opening Book**: Caches deep search trees to build a master opening book over time.
 - **Live Evaluation Bar & Best-Move Hints**: Displays dynamic win/advantage meters and glowing arrow overlays.
@@ -55,7 +55,7 @@ Launch the dedicated tablebase solver to analyze positions, view candidate moves
 
 ## 🛠️ Architecture
 
-* **Unified Engine Core**: Both the Game GUI and Solver GUI share a single source of truth (`Engine/gui/engine.worker.js`), ensuring that any engine heuristic or search algorithm improvement is instantly shared across all interfaces without code duplication.
+* **Unified Engine Core**: Both the Game Suite and Solver share a single source of truth (`Engine/play/engine.worker.js`), ensuring that any engine heuristic or search algorithm improvement is instantly shared across all interfaces without code duplication.
 * **Pure In-Browser Web Worker**: Runs multithreaded AI search and BigInt rational arithmetic directly in the browser with zero external dependencies.
 
 ---
